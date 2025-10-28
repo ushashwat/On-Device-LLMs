@@ -2,8 +2,8 @@ import json
 import random
 import torch
 from collections import defaultdict
-from datasets import Dataset
-from peft import LoraConfig, get_peft_model
+from datasets import Dataset, DatasetDict
+from peft import LoraConfig
 from transformers import (
     AutoTokenizer,
     AutoModelForCausalLM,
@@ -13,9 +13,12 @@ from transformers import (
 )
 from trl import SFTTrainer
 
-file_name = '/home/shashwat/Topic_Modelling/check/data.jsonl'
+model_id = "Qwen/Qwen3-4B-Instruct-2507"
+data_file = "../data/data.jsonl"
+data_save_path = "../data/datasets"
+model_save_path = "../model/tiny_qwen"
 
-with open(file_name, 'r') as f:
+with open(data_file, 'r') as f:
     data_qna = [json.loads(line) for line in f if line.strip()]
 
 # Group data by type
@@ -40,11 +43,15 @@ random.shuffle(train_set)
 random.shuffle(val_set)
 random.shuffle(test_set)
 
-print(len(train_set))
-print(len(val_set))
-print(len(test_set))
+# Convert lists to Hugging Face datasets
+train_dataset = Dataset.from_list(train_set)
+val_dataset = Dataset.from_list(val_set)
+test_dataset = Dataset.from_list(test_set)
 
-dataset = ""
+all_datasets = DatasetDict({'train': train_dataset,
+                            'val': val_dataset,
+                            'test': test_dataset})
+all_datasets.save_to_disk(data_save_path)
 
 # 4-bit quantisation config
 bnb_config = BitsAndBytesConfig(
@@ -54,19 +61,64 @@ bnb_config = BitsAndBytesConfig(
     bnb_4bit_compute_dtype=torch.bfloat16,
 )
 
-model_id = "Qwen/Qwen3-4B-Instruct-2507"
-
 # Load model and tokenizer
-tokenizer = AutoTokenizer.from_pretrained(model_id)
-model = AutoModelForCausalLM.from_pretrained(model_id,
-                                             quantization_config=bnb_config,
-                                             torch_dtype=torch.bfloat16,)
+model = AutoModelForCausalLM.from_pretrained(
+    model_id,
+    trust_remote_code=True,
+    quantization_config=bnb_config,
+    torch_dtype=torch.bfloat16,
+)
 
 model.config.use_cache = False # Disable kv cache
 model.config.pretraining_tp = 1 # Ignore pre-training tensor parallelism
 # print(model.get_memory_footprint())
 
-SYSTEM_PROMPT = "You are an expert."
+tokenizer = AutoTokenizer.from_pretrained(
+    model_id,
+    trust_remote_code=True,
+)
+if tokenizer.pad_token is None:
+    tokenizer.pad_token = tokenizer.eos_token
+
+# Define system instruction
+SYS_PROMPT = """
+### Instruction: You are an expert AI automotive diagnostic assistant.
+### Goal: Your primary goal is to analyse vehicle symptoms and provide clear, concise diagnostic steps.
+### Output: Give a structured output in a markdown format using headings and bullet points.
+### Constraints: If the question is not related to vehicle diagnostics, politely refuse to answer.
+"""
+
+# Pre-processing function
+def apply_chat_template(example, tokenizer, max_length=1024):
+    """
+    Takes each example from the given dataset and applies the chat template.
+    Adds system/user/assistant content and tokenises the result.
+    """
+    messages = [
+        {"role": "system", "content": SYS_PROMPT},
+        {"role": "user", "content": example["question"]},
+        {"role": "assistant", "content": example["answer"]}
+    ]
+
+    formatted_input = tokenizer.apply_chat_template(
+        messages,
+        tokenize=False,
+        add_generation_prompt=False,
+    )
+
+    tokenised_output = tokenizer(
+        formatted_input,
+        truncation=True,
+        padding=False,
+        max_length=max_length,
+    )
+    return tokenised_output
+
+# Apply the chat template to the selected dataset
+tokenised_dataset = all_datasets.map(
+    lambda ex: apply_chat_template(ex, tokenizer),
+    remove_columns=['type', 'question', 'answer'],
+)
 
 # Convert tokenizer into data collator for SFTTrainer
 data_collator = DataCollatorForLanguageModeling(
@@ -83,7 +135,6 @@ peft_config = LoraConfig(
     target_modules=["q_proj", "k_proj", "v_proj", "o_proj",
                     "gate_proj", "up_proj", "down_proj"]
 )
-model = get_peft_model(model, peft_config)
 
 # Define training arguments
 training_args = TrainingArguments(
@@ -110,14 +161,13 @@ trainer = SFTTrainer(
     model=model,
     args=training_args,
     peft_config=peft_config,
-    train_dataset=dataset, # Update
-    eval_dataset=dataset, # Update
+    train_dataset=tokenised_dataset['train'],
+    eval_dataset=tokenised_dataset['val'],
     data_collator=data_collator,
 )
 
 trainer.train()
 
 # Save the fine-tuned model
-model_save_path = "tiny_qwen"
-model.save_pretrained(str(model_save_path))
-tokenizer.save_pretrained(str(model_save_path))
+trainer.save_model(model_save_path)
+tokenizer.save_pretrained(model_save_path)
