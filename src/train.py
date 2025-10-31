@@ -1,8 +1,10 @@
 import json
 import random
 import torch
+import pandas as pd
 from collections import defaultdict
 from datasets import Dataset, DatasetDict
+from sklearn.model_selection import train_test_split
 from peft import LoraConfig
 from transformers import (
     AutoTokenizer,
@@ -18,35 +20,19 @@ data_file = "../data/data.jsonl"
 data_save_path = "../data/datasets"
 model_save_path = "../model/tiny_qwen"
 
-with open(data_file, 'r') as f:
-    data_qna = [json.loads(line) for line in f if line.strip()]
+# Stratify, shuffle, and split the data
+df = pd.read_json(data_file, lines=True)
 
-# Group data by type
-field_type = defaultdict(list)
-for record in data_qna:
-    field_type[record['type']].append(record)
+df_train, df_temp = train_test_split(df, test_size=0.2,
+                                        stratify=df["type"], shuffle=True, random_state=18)
 
-train_set, val_set, test_set = [], [], []
-
-# Stratify & shuffle
-for type_key, records in field_type.items():
-    random.shuffle(records)
-    n = len(records)
-    train_end = int(0.8 * n)
-    test_start = train_end + int(0.1 * n)
-
-    train_set.extend(records[:train_end])
-    val_set.extend(records[train_end:test_start])
-    test_set.extend(records[test_start:])
-
-random.shuffle(train_set)
-random.shuffle(val_set)
-random.shuffle(test_set)
+df_val, df_test = train_test_split(df_temp, test_size=1/2,
+                                    stratify=df_temp["type"], shuffle=True, random_state=18)
 
 # Convert lists to Hugging Face datasets
-train_dataset = Dataset.from_list(train_set)
-val_dataset = Dataset.from_list(val_set)
-test_dataset = Dataset.from_list(test_set)
+train_dataset = Dataset.from_pandas(df_train)
+val_dataset = Dataset.from_pandas(df_val)
+test_dataset = Dataset.from_pandas(df_test)
 
 all_datasets = DatasetDict({'train': train_dataset,
                             'val': val_dataset,
