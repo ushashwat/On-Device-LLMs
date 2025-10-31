@@ -1,11 +1,14 @@
-import json
-import random
+import os
 import torch
 import pandas as pd
-from collections import defaultdict
 from datasets import Dataset, DatasetDict
 from sklearn.model_selection import train_test_split
 from peft import LoraConfig
+from peft import (
+    LoraConfig,
+    get_peft_model,
+    prepare_model_for_kbit_training,
+)
 from transformers import (
     AutoTokenizer,
     AutoModelForCausalLM,
@@ -16,28 +19,44 @@ from transformers import (
 from trl import SFTTrainer
 
 model_id = "Qwen/Qwen3-4B-Instruct-2507"
-data_file = "../data/data.jsonl"
-data_save_path = "../data/datasets"
+data_file = "../data.jsonl"
+data_save_path = "../data"
+model_checkpoint = "../model/tiny_qwen_output"
 model_save_path = "../model/tiny_qwen"
 
-# Stratify, shuffle, and split the data
-df = pd.read_json(data_file, lines=True)
+# Define system instruction
+SYS_PROMPT = """
+### Instruction: You are an expert AI automotive diagnostic assistant.
+### Goal: Your primary goal is to analyse vehicle symptoms and provide clear, concise diagnostic steps.
+### Output: Give a structured output in a markdown format using headings and bullet points.
+### Constraints: If the question is not related to vehicle diagnostics, politely refuse to answer.
+"""
 
-df_train, df_temp = train_test_split(df, test_size=0.2,
-                                        stratify=df["type"], shuffle=True, random_state=18)
+# Data processing & formatting
+def load_data(data, save_path):
+    df = pd.read_json(data, lines=True)
 
-df_val, df_test = train_test_split(df_temp, test_size=1/2,
-                                    stratify=df_temp["type"], shuffle=True, random_state=18)
+    # Stratify, shuffle, and split the data
+    df_train, df_temp = train_test_split(df, test_size=0.2,
+                                         stratify=df["type"], shuffle=True, random_state=18)
 
-# Convert lists to Hugging Face datasets
-train_dataset = Dataset.from_pandas(df_train)
-val_dataset = Dataset.from_pandas(df_val)
-test_dataset = Dataset.from_pandas(df_test)
+    df_val, df_test = train_test_split(df_temp, test_size=0.5,
+                                       stratify=df_temp["type"], shuffle=True, random_state=18)
+    
+    os.makedirs(save_path, exist_ok=True)
+    df_train.to_json(os.path.join(save_path, "train.jsonl"), orient="records", lines=True)
+    df_val.to_json(os.path.join(save_path, "val.jsonl"), orient="records", lines=True)
+    df_test.to_json(os.path.join(save_path, "test.jsonl"), orient="records", lines=True)
 
-all_datasets = DatasetDict({'train': train_dataset,
-                            'val': val_dataset,
-                            'test': test_dataset})
-all_datasets.save_to_disk(data_save_path)
+    # Convert lists to Hugging Face datasets
+    train_dataset = Dataset.from_pandas(df_train)
+    val_dataset = Dataset.from_pandas(df_val)
+    test_dataset = Dataset.from_pandas(df_test)
+
+    all_data = DatasetDict({"train": train_dataset, "val": val_dataset, "test": test_dataset})
+    return all_data
+
+all_datasets = load_data(data_file, data_save_path)
 
 # 4-bit quantisation config
 bnb_config = BitsAndBytesConfig(
@@ -52,12 +71,11 @@ model = AutoModelForCausalLM.from_pretrained(
     model_id,
     trust_remote_code=True,
     quantization_config=bnb_config,
-    torch_dtype=torch.bfloat16,
+    dtype=torch.bfloat16,
 )
 
 model.config.use_cache = False # Disable kv cache
 model.config.pretraining_tp = 1 # Ignore pre-training tensor parallelism
-# print(model.get_memory_footprint())
 
 tokenizer = AutoTokenizer.from_pretrained(
     model_id,
@@ -66,13 +84,19 @@ tokenizer = AutoTokenizer.from_pretrained(
 if tokenizer.pad_token is None:
     tokenizer.pad_token = tokenizer.eos_token
 
-# Define system instruction
-SYS_PROMPT = """
-### Instruction: You are an expert AI automotive diagnostic assistant.
-### Goal: Your primary goal is to analyse vehicle symptoms and provide clear, concise diagnostic steps.
-### Output: Give a structured output in a markdown format using headings and bullet points.
-### Constraints: If the question is not related to vehicle diagnostics, politely refuse to answer.
-"""
+# Define LoRA parameters
+peft_config = LoraConfig(
+    r=32,
+    lora_alpha=64,
+    lora_dropout=0.1,
+    task_type="CAUSAL_LM",
+    target_modules=["q_proj", "k_proj", "v_proj", "o_proj",
+                    "gate_proj", "up_proj", "down_proj"]
+)
+
+model = prepare_model_for_kbit_training(model)
+model = get_peft_model(model, peft_config)
+model.print_trainable_parameters()
 
 # Pre-processing function
 def apply_chat_template(example, tokenizer, max_length=1024):
@@ -112,25 +136,15 @@ data_collator = DataCollatorForLanguageModeling(
     mlm=False,
 )
 
-# Define LoRA parameters
-peft_config = LoraConfig(
-    r=32,
-    lora_alpha=64,
-    lora_dropout=0.1,
-    task_type="CAUSAL_LM",
-    target_modules=["q_proj", "k_proj", "v_proj", "o_proj",
-                    "gate_proj", "up_proj", "down_proj"]
-)
-
 # Define training arguments
 training_args = TrainingArguments(
-    output_dir="qwen3_output",
+    output_dir=model_checkpoint,
     per_device_train_batch_size=4,
     per_device_eval_batch_size=4,
     gradient_accumulation_steps=2,
     gradient_checkpointing=True,
-    num_train_epochs=3,
-    learning_rate=2e-5,
+    num_train_epochs=5,
+    learning_rate=1e-5,
     lr_scheduler_type="cosine",
     warmup_ratio=0.05,
     weight_decay=0.01,
@@ -146,13 +160,13 @@ training_args = TrainingArguments(
 trainer = SFTTrainer(
     model=model,
     args=training_args,
-    peft_config=peft_config,
     train_dataset=tokenised_dataset['train'],
     eval_dataset=tokenised_dataset['val'],
     data_collator=data_collator,
 )
 
 trainer.train()
+print("Fine-tuning complete.")
 
 # Save the fine-tuned model
 trainer.save_model(model_save_path)
