@@ -5,7 +5,7 @@ import numpy as np
 import pandas as pd
 from datasets import Dataset, DatasetDict
 from sklearn.model_selection import train_test_split
-from peft import LoraConfig
+from peft import LoraConfig, PeftModel
 from peft import (
     LoraConfig,
     get_peft_model,
@@ -27,33 +27,37 @@ model_checkpoint = "../model/tiny_qwen_output"
 model_save_path = "../model/tiny_qwen"
 
 # Define system instruction
-SYS_PROMPT = """<system_role>You are an expert AI automotive diagnostic assistant. Your tone is professional, helpful, and concise.</system_role>
+SYS_PROMPT = """
+<system_prompt>
+  <role>You are an expert AI automotive diagnostic assistant.</role>
+  
+  <instructions>
+    You MUST follow this logic:
+    1.  Analyze the user's question.
+    2.  IF the question is about vehicle symptoms, follow <on_topic_rules>.
+    3.  IF the question is ANYTHING ELSE, follow <off_topic_rules>.
+  </instructions>
 
-<task_definition>
-Your sole purpose is to analyse vehicle symptoms and provide diagnostic steps.
-You must first determine if the user's question is a vehicle diagnostic query.
-</task_definition>
-
-<on_topic_rules>
-<instruction>1. Identify the core symptom.</instruction>
-<instruction>2. Map it to the most likely **Component** and **System**.</instruction>
-<instruction>3. Provide concise, ordered diagnostic steps in Markdown.</instruction>
-
-<output_guidelines>
-- Your answer must begin by identifying the likely **Component** and **System** in bold.
-- After the identification, use a "## Diagnostic Steps" heading.
-- Use bullet points for the steps.
-</output_guidelines>
-</on_topic_rules>
-
-<guardrail_rules>
-<instruction>You MUST strictly refuse all off-topic, non-vehicle questions.</instruction>
-<off_topic_examples>
-- Questions about yourself, your training, parameters, or personal opinions/facts/figures.
-- Requests for general knowledge, coding, or any non-automotive topic.
-</off_topic_examples>
-<instruction>When refusing, use a brief and polite message as seen in your training data.</instruction>
-</guardrail_rules>
+  <on_topic_rules>
+    <task>Provide diagnostic steps.</task>
+    <output>
+    - Start by identifying the **Component** and **System** in bold.
+    - Then use "## Diagnostic Steps" heading.
+    - Use bullet points for the steps.
+    </output>
+  </on_topic_rules>
+  
+  <off_topic_rules>
+    <task>Strictly refuse all non-vehicle questions.</task>
+    <examples_to_refuse>
+      - Conversational chit-chat (e.g., "how are you").
+      - Trivia (e.g., "who painted the mona lisa").
+      - Questions about yourself or your training.
+      - Any other non-automotive topic.
+    </examples_to_refuse>
+    <output>Respond ONLY with one of the standard refusal answers from your training data.</output>
+  </off_topic_rules>
+</system_prompt>
 """
 
 # Use seed for reproducibility
@@ -120,8 +124,8 @@ if tokenizer.pad_token is None:
 
 # Define LoRA parameters
 peft_config = LoraConfig(
-    r=32,
-    lora_alpha=64,
+    r=128,
+    lora_alpha=256,
     lora_dropout=0.1,
     task_type="CAUSAL_LM",
     target_modules=["q_proj", "k_proj", "v_proj", "o_proj",
@@ -161,7 +165,7 @@ def apply_chat_template(example, tokenizer, max_length=1024):
 # Apply the chat template to the selected dataset
 tokenised_dataset = all_datasets.map(
     lambda ex: apply_chat_template(ex, tokenizer),
-    remove_columns=['type', 'question', 'answer'],
+    remove_columns=["type", "question", "answer"],
 )
 
 # Convert tokenizer into data collator for SFTTrainer
@@ -173,8 +177,8 @@ data_collator = DataCollatorForLanguageModeling(
 # Define training arguments
 training_args = TrainingArguments(
     output_dir=model_checkpoint,
-    per_device_train_batch_size=4,
-    per_device_eval_batch_size=4,
+    per_device_train_batch_size=16,
+    per_device_eval_batch_size=16,
     gradient_accumulation_steps=2,
     gradient_checkpointing=True,
     num_train_epochs=5,
@@ -194,8 +198,8 @@ training_args = TrainingArguments(
 trainer = SFTTrainer(
     model=model,
     args=training_args,
-    train_dataset=tokenised_dataset['train'],
-    eval_dataset=tokenised_dataset['val'],
+    train_dataset=tokenised_dataset["train"],
+    eval_dataset=tokenised_dataset["val"],
     data_collator=data_collator,
 )
 
@@ -205,3 +209,17 @@ print("Fine-tuning complete.")
 # Save the fine-tuned model
 trainer.save_model(model_save_path)
 tokenizer.save_pretrained(model_save_path)
+
+base_model = AutoModelForCausalLM.from_pretrained(
+    model_id,
+    trust_remote_code=True,
+    dtype=torch.bfloat16,
+)
+
+# Load and save the trained adapter onto the base model
+merged_model = PeftModel.from_pretrained(base_model, model_save_path)
+merged_model = merged_model.merge_and_unload()
+
+merged_model_save_path = model_save_path + "_merged"
+merged_model.save_pretrained(merged_model_save_path)
+tokenizer.save_pretrained(merged_model_save_path)
