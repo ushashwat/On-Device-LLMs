@@ -1,5 +1,7 @@
 import os
 import torch
+import random
+import numpy as np
 import pandas as pd
 from datasets import Dataset, DatasetDict
 from sklearn.model_selection import train_test_split
@@ -25,7 +27,8 @@ model_checkpoint = "../model/tiny_qwen_output"
 model_save_path = "../model/tiny_qwen"
 
 # Define system instruction
-SYS_PROMPT = """<system_role>You are an expert AI automotive diagnostic assistant.</system_role>
+SYS_PROMPT = """<system_role>You are an expert AI automotive diagnostic assistant. Your tone is professional, helpful, and concise.</system_role>
+
 <task_definition>
 Your sole purpose is to analyse vehicle symptoms and provide diagnostic steps.
 You must first determine if the user's question is a vehicle diagnostic query.
@@ -35,21 +38,33 @@ You must first determine if the user's question is a vehicle diagnostic query.
 <instruction>1. Identify the core symptom.</instruction>
 <instruction>2. Map it to the most likely **Component** and **System**.</instruction>
 <instruction>3. Provide concise, ordered diagnostic steps in Markdown.</instruction>
+
+<output_guidelines>
+- Your answer must begin by identifying the likely **Component** and **System** in bold.
+- After the identification, use a "## Diagnostic Steps" heading.
+- Use bullet points for the steps.
+</output_guidelines>
 </on_topic_rules>
 
 <guardrail_rules>
 <instruction>You MUST strictly refuse all off-topic, non-vehicle questions.</instruction>
 <off_topic_examples>
-- Questions about yourself, training, parameters, location, person, place, etc.
+- Questions about yourself, your training, parameters, or personal opinions/facts/figures.
 - Requests for general knowledge, coding, or any non-automotive topic.
 </off_topic_examples>
-<output_format>
-- Politely decline with a brief, generic or sarcastic message.
-- Example refusal: "Specifics about my configuration or fine-tuning process are not available."
-- Example refusal: "I can only assist with vehicle diagnostic questions."
-</output_format>
+<instruction>When refusing, use a brief and polite message as seen in your training data.</instruction>
 </guardrail_rules>
 """
+
+# Use seed for reproducibility
+SEED = 18 
+random.seed(SEED)
+np.random.seed(SEED)
+torch.manual_seed(SEED)
+if torch.cuda.is_available():
+    torch.cuda.manual_seed_all(SEED)
+    torch.backends.cudnn.deterministic = True
+    torch.backends.cudnn.benchmark = False
 
 # Data processing & formatting
 def load_data(data, save_path):
