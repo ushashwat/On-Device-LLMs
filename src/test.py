@@ -9,12 +9,11 @@ from transformers import (
     pipeline,
 )
 
-test_file = "../data/test.jsonl"
-results_path = "../data/evaluation.csv"
-model_path = "../model/tiny_qwen"
-merged_model_path = model_path + "_merged"
+SEED = 18
+TEST_FILE = "../data/test.jsonl"
+RESULTS_PATH = "../data/evaluation.csv"
+MODEL_PATH = "../model/tiny_qwen_merged"
 
-# Define system instruction
 SYS_PROMPT = """
 <system_prompt>
   <role>You are an expert AI automotive diagnostic assistant.</role>
@@ -48,41 +47,27 @@ SYS_PROMPT = """
 </system_prompt>
 """
 
-# Use seed for reproducibility
-SEED = 18 
-random.seed(SEED)
-np.random.seed(SEED)
-torch.manual_seed(SEED)
-if torch.cuda.is_available():
-    torch.cuda.manual_seed_all(SEED)
-    torch.backends.cudnn.deterministic = True
-    torch.backends.cudnn.benchmark = False
+def set_seed(seed):
+    """
+    Sets seed for reproducibility.
+    """
+    random.seed(seed)
+    np.random.seed(seed)
+    torch.manual_seed(seed)
+    if torch.cuda.is_available():
+        torch.cuda.manual_seed_all(seed)
+        torch.backends.cudnn.deterministic = True
+        torch.backends.cudnn.benchmark = False
 
-# Read test set and convert to Dataset object
-df_test = pd.read_json(test_file, lines=True)
-data_test = Dataset.from_pandas(df_test)
+def process_test_data(test_file):
+    """
+    Loads test data from JSONL file.
+    """
+    df_test = pd.read_json(test_file, lines=True)
+    data_test = Dataset.from_pandas(df_test)
+    return data_test
 
-# Load merged model and tokenizer
-model = AutoModelForCausalLM.from_pretrained(
-    merged_model_path,
-    trust_remote_code=True,
-    dtype=torch.bfloat16,
-)
-
-tokenizer = AutoTokenizer.from_pretrained(
-    merged_model_path,
-    trust_remote_code=True,
-    padding_side="left"
-)
-
-generation_kwargs = {
-    "max_new_tokens": 512,
-    "eos_token_id": tokenizer.eos_token_id,
-    "return_full_text": False,
-}
-
-# Build the prompt
-def apply_chat_template(example):
+def apply_chat_template(example, tokenizer):
     """
     Applies the chat template to a batch of samples from the test set.
     """
@@ -95,25 +80,74 @@ def apply_chat_template(example):
         tokenize=False,
         add_generation_prompt=True,
     )
-
     return {"prompt": prompt}
 
-# Apply chat template & get the list of prompts
-data_prompts = data_test.map(apply_chat_template)
-prompts_list = data_prompts["prompt"][:]
+def load_model_and_tokenizer(merged_model_path):
+    """
+    Loads merged model and tokeniser.
+    """
+    model = AutoModelForCausalLM.from_pretrained(
+        merged_model_path,
+        trust_remote_code=True,
+        dtype=torch.bfloat16,
+    )
+    tokenizer = AutoTokenizer.from_pretrained(
+        merged_model_path,
+        trust_remote_code=True,
+        padding_side="left"
+    )
+    return model, tokenizer
 
-# Create pipeline and get predictions
-model.eval()
-pipe = pipeline("text-generation", model=model, tokenizer=tokenizer)
-outputs = pipe(prompts_list, **generation_kwargs, batch_size=32)
-pred = [output[0]["generated_text"].strip() for output in outputs]
+def generate_preds(model, tokenizer, prompts_list):
+    """
+    Generates predictions using model pipeline.
+    """
+    generation_kwargs = {
+        "max_new_tokens": 512,
+        "eos_token_id": tokenizer.eos_token_id,
+        "return_full_text": False,
+    }
+    
+    model.eval()
+    pipe = pipeline("text-generation", model=model, tokenizer=tokenizer)
+    outputs = pipe(prompts_list, **generation_kwargs, batch_size=32)
+    preds = [output[0]["generated_text"].strip() for output in outputs]
+    return preds
 
-# Save evaluation results
-df_results = pd.DataFrame({
-    "question": data_test["question"],
-    "answer_ref": data_test["answer"],
-    "answer_pred": pred
-})
+def save_eval_results(data_test, predictions, results_path):
+    """
+    Saves evaluation results to a CSV file.
+    """
+    df_results = pd.DataFrame({
+        "question": data_test["question"],
+        "answer_ref": data_test["answer"],
+        "answer_pred": predictions
+    })
+    df_results.to_csv(results_path, index=False)
 
-print("Evaluation complete.")
-df_results.to_csv(results_path, index=False)
+def main():
+    print("Starting evaluation pipeline..")
+    set_seed(SEED)
+
+    print("Loading test data..")
+    data_test = process_test_data(TEST_FILE)
+
+    print("Loading model and tokeniser..")
+    model, tokenizer = load_model_and_tokenizer(MODEL_PATH)
+
+    # Apply chat template & get the list of prompts
+    data_prompts = data_test.map(
+        lambda ex: apply_chat_template(ex, tokenizer)
+    )
+    prompts_list = data_prompts["prompt"][:]
+
+    print("Generating predictions..")
+    preds = generate_preds(model, tokenizer, prompts_list)
+
+    print("Saving results..")
+    save_eval_results(data_test, preds, RESULTS_PATH)
+
+    print("Evaluation pipeline finished.")
+
+if __name__ == "__main__":
+    main()

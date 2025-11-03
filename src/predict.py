@@ -5,10 +5,9 @@ from transformers import (
     BitsAndBytesConfig,
 )
 
-model_path = "../model/tiny_qwen_merged"
-device = "cpu"
+DEVICE = "cpu"
+MODEL_PATH = "../model/tiny_qwen_merged"
 
-# Define system instruction
 SYS_PROMPT = """
 <system_prompt>
   <role>You are an expert AI automotive diagnostic assistant.</role>
@@ -42,19 +41,31 @@ SYS_PROMPT = """
 </system_prompt>
 """
 
-bnb_config = BitsAndBytesConfig(
-    load_in_8bit=True,
-)
+def create_bnb_config():
+    """
+    Creates 8-bit quantisation configuration.
+    """
+    return BitsAndBytesConfig(
+        load_in_8bit=True,
+    ) 
 
-tokenizer = AutoTokenizer.from_pretrained(model_path)
-model = AutoModelForCausalLM.from_pretrained(
-    model_path,
-    device_map="cpu",
-    quantization_config=bnb_config,
-)
-model.eval()
+def load_model_and_tokenizer(bnb_config, model_path, device):
+    """
+    Loads the merged model and tokeniser for inference.
+    """
+    tokenizer = AutoTokenizer.from_pretrained(model_path)
+    model = AutoModelForCausalLM.from_pretrained(
+        model_path,
+        device_map=device,
+        quantization_config=bnb_config,
+    )
+    model.eval()
+    return model, tokenizer
 
-def generate_response(prompt):
+def generate_response(prompt, model, tokenizer, device):
+    """
+    Generates a response based on user prompt.
+    """
     messages = [
         {"role": "system", "content": SYS_PROMPT},
         {"role": "user", "content": prompt}
@@ -81,6 +92,18 @@ def generate_response(prompt):
 
     return response
 
-# Run inference
-question = "My window is stuck, what do i do?"
-print(generate_response(question))
+def main():
+    print("Starting inference pipeline..")
+    bnb_config = create_bnb_config()
+    model, tokenizer = load_model_and_tokenizer(bnb_config, MODEL_PATH, DEVICE)
+
+    # Run inference
+    question = "My window is stuck, what do i do?"
+    print(f"Prompt: {question}\n")
+    
+    print("Generating response..")
+    response = generate_response(question, model, tokenizer, DEVICE)
+    print(f"Reply: {response}")
+
+if __name__ == "__main__":
+    main()
