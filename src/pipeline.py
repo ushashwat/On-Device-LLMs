@@ -1,15 +1,25 @@
 import os
 import sys
+import logging
 import argparse
 import train, eval, pred
 from transformers import DataCollatorForLanguageModeling
+
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s - %(name)s - %(message)s"
+)
+logger = logging.getLogger(__name__)
 
 class EdgeLLMPipeline:
     """
     Pipeline for training, evaluating, and deploying Edge LLMs.
     """
+    ALL_MODELS = ["gemma", "qwen"]
+    GEMMA_MODEL_ID = "google/gemma-3-1b-it"
+    QWEN_MODEL_ID = "Qwen/Qwen3-4B-Instruct-2507"
     SEED = 18
-    HF_TOKEN = os.getenv("HF_TOKEN")
+
     DATA_FILE = "../data/data.jsonl"
     TEST_FILE = "../data/test.jsonl"
     RESULTS_FILE = "../data/evaluation.csv"
@@ -56,12 +66,18 @@ class EdgeLLMPipeline:
     </system_prompt>
     """
 
-    def __init__(self, model_name):
+    def __init__(self, model_name: str) -> None:
+        """
+        Initialises the Edge LLM pipeline.
+        """
+        if model_name not in self.ALL_MODELS:
+            raise ValueError("Unsupported LLM!")
+        
         self.HF_TOKEN = os.getenv("HF_TOKEN")
         self.model_name = model_name
         self.model_id = ""
         self.model_kwargs = {}
-        self.sys_prompt = ""
+        self.SYS_PROMPT = ""
 
         self.paths = {
             "checkpoint_path": os.path.join(self.MODEL_PATH, f"tiny_{model_name}_output"),
@@ -70,19 +86,21 @@ class EdgeLLMPipeline:
         }
 
         if model_name == "gemma":
-            self.model_id = "google/gemma-3-1b-it"
-            self.sys_prompt = self.SYS_PROMPT_SHORT
+            self.model_id = self.GEMMA_MODEL_ID
+            self.SYS_PROMPT = self.SYS_PROMPT_SHORT
             if not self.HF_TOKEN:
-                print("Error: Gemma3 is a gated model and requires authentication.")
-                sys.exit(1)
+                raise EnvironmentError("Gemma3 is a gated model and requires Hugging Face token.")
             self.model_kwargs = {"token": self.HF_TOKEN}
         elif model_name == "qwen":
             self.model_id = "Qwen/Qwen3-4B-Instruct-2507"
-            self.sys_prompt = self.SYS_PROMPT_LONG
+            self.SYS_PROMPT = self.SYS_PROMPT_LONG
             self.model_kwargs = {"trust_remote_code": True}
 
-    def run_train(self):
-        print("Starting training pipeline..")
+    def run_train(self) -> None:
+        """
+        Executes the training pipeline.
+        """
+        logger.info("Starting training pipeline..")
         train.set_seed(self.SEED)
 
         checkpoint_path = self.paths["checkpoint_path"]
@@ -97,9 +115,8 @@ class EdgeLLMPipeline:
         model, tokenizer = train.load_model_and_tokenizer(self.model_id, bnb_config, **self.model_kwargs)
         model = train.prepare_model_for_peft(model, peft_config)
 
-        print("Tokenising datasets..")
         tokenised_dataset = all_datasets.map(
-            lambda ex: train.apply_chat_template(self.sys_prompt, ex, tokenizer, self.model_name),
+            lambda ex: train.apply_chat_template(self.SYS_PROMPT, ex, tokenizer, self.model_name),
             remove_columns=["type", "question", "answer"],
         )
 
@@ -109,7 +126,7 @@ class EdgeLLMPipeline:
             mlm=False,
         )
 
-        print("Fine-tuning model..")
+        logger.info("Fine-tuning model..")
         training_args = train.create_train_args(checkpoint_path)
         trainer = train.train_sft(
             model,
@@ -119,50 +136,58 @@ class EdgeLLMPipeline:
             tokenised_dataset["val"],
             data_collator,
         )
-        print("Fine-tuning complete.")
+        logger.info("Fine-tuning complete.")
 
         # Save the fine-tuned adapter & merged model
-        print(f"Saving adapter to: {adapter_path}")
+        logger.info(f"Saving adapter to: {adapter_path}")
         trainer.save_model(adapter_path)
 
         train.merge_model(trainer, tokenizer, merged_path)
-        print("Training pipeline finished.")
+        logger.info("Training pipeline finished.")
 
-    def run_eval(self):
-        print("Starting evaluation pipeline..")
+    def run_eval(self) -> None:
+        """
+        Executes the evaluation pipeline.
+        """
+        logger.info("Starting evaluation pipeline..")
         eval.set_seed(self.SEED)
 
         merged_path = self.paths["merged_path"]
 
         data_test = eval.process_test_data(self.TEST_FILE)
 
-        print("Loading model and tokeniser..")
+        logger.info("Loading model and tokeniser..")
         model, tokenizer = eval.load_model_and_tokenizer(merged_path, **self.model_kwargs)
 
         # Apply chat template & get the list of prompts
         data_prompts = data_test.map(
-            lambda ex: eval.apply_chat_template(self.sys_prompt, ex, tokenizer, self.model_name)
+            lambda ex: eval.apply_chat_template(self.SYS_PROMPT, ex, tokenizer, self.model_name)
         )
         prompts_list = data_prompts["prompt"][:]
 
         preds = eval.generate_preds(model, tokenizer, prompts_list)
 
-        print("Saving results..")
         eval.save_eval_results(data_test, preds, self.RESULTS_FILE)
-        print("Evaluation pipeline finished.")
+        logger.info("Evaluation pipeline finished.")
 
     def run_pred(self):
-        print("Starting inference pipeline..")
+        """
+        Executes the inference pipeline.
+        """
+        logger.info("Starting inference pipeline..")
         merged_path = self.paths["merged_path"]
 
         model, tokenizer = pred.load_model_and_tokenizer(merged_path, **self.model_kwargs)
 
         # Run inference
-        print(f"Prompt: {self.USER_PROMPT}\n")
-        response = pred.generate_response(self.sys_prompt, self.USER_PROMPT, model, tokenizer, self.model_name)
-        print(f"Reply:\n {response}")
+        logger.info(f"Prompt: {self.USER_PROMPT}\n")
+        response = pred.generate_response(self.SYS_PROMPT, self.USER_PROMPT, model, tokenizer, self.model_name)
+        logger.info(f"Reply:\n {response}")
 
-def main():
+def main() -> None:
+    """
+    Main entry point for the pipeline.
+    """
     parser = argparse.ArgumentParser(description="Fine-tune QLoRA LLM.")
     parser.add_argument(
         "--script",
@@ -180,16 +205,18 @@ def main():
     )
     args = parser.parse_args()
 
-    pipeline = EdgeLLMPipeline(model_name=args.model_name)
-    
-    if args.script == "train":
-        pipeline.run_train()
-    elif args.script == "eval":
-        pipeline.run_eval()
-    elif args.script == "pred":
-        pipeline.run_pred()
-    elif args.script == "convert":
-        pipeline.run_convert()
+    try:
+        pipeline = EdgeLLMPipeline(model_name=args.model_name)
+        
+        if args.script == "train":
+            pipeline.run_train()
+        elif args.script == "eval":
+            pipeline.run_eval()
+        elif args.script == "pred":
+            pipeline.run_pred()
+    except Exception as e:
+        logger.error(f"Pipeline execution failed: {e}", exc_info=True)
+        sys.exit(1)
 
 if __name__ == "__main__":
     main()
