@@ -4,129 +4,163 @@ import argparse
 import train, eval, pred
 from transformers import DataCollatorForLanguageModeling
 
-SEED = 18
-HF_TOKEN = os.getenv("HF_TOKEN")
-DATA_FILE = "/home/shashwat/Topic_Modelling/check/data/data.jsonl"
-TEST_FILE = "/home/shashwat/Topic_Modelling/check/data/test.jsonl"
-RESULTS_FILE = "/home/shashwat/Topic_Modelling/check/data/evaluation.csv"
-DATA_PATH = "/home/shashwat/Topic_Modelling/check/data"
-MODEL_PATH = "/home/shashwat/Topic_Modelling/check/model"
+class EdgeLLMPipeline:
+    """
+    Pipeline for training, evaluating, and deploying Edge LLMs.
+    """
+    SEED = 18
+    HF_TOKEN = os.getenv("HF_TOKEN")
+    DATA_FILE = "../data/data.jsonl"
+    TEST_FILE = "../data/test.jsonl"
+    RESULTS_FILE = "../data/evaluation.csv"
+    DATA_PATH = "../data"
+    MODEL_PATH = "../model"
 
-USER_PROMPT = "My window is stuck, what do i do?"
+    USER_PROMPT = "My window is stuck, what do i do now?"
+    SYS_PROMPT_SHORT = """
+    You are an automotive diagnostic assistant who replies concisely.
+    For vehicle symptoms, provide max 2 diagnostic steps identifying the Component and System in bold.
+    Then list steps under '## Diagnostic Steps'.
+    For non-vehicle questions (chit-chat, trivia, questions about yourself), politely refuse.
+    """
+    SYS_PROMPT_LONG = """
+    <system_prompt>
+    <role>You are an expert AI automotive diagnostic assistant.</role>
+    
+    <instructions>
+        You MUST follow this logic:
+        1.  Analyze the user's question.
+        2.  IF the question is about vehicle symptoms, follow <on_topic_rules>.
+        3.  IF the question is ANYTHING ELSE, follow <off_topic_rules>.
+    </instructions>
 
-SYS_PROMPT = """
-<system_prompt>
-  <role>You are an expert AI automotive diagnostic assistant.</role>
-  
-  <instructions>
-    You MUST follow this logic:
-    1.  Analyze the user's question.
-    2.  IF the question is about vehicle symptoms, follow <on_topic_rules>.
-    3.  IF the question is ANYTHING ELSE, follow <off_topic_rules>.
-  </instructions>
+    <on_topic_rules>
+        <task>Provide maximum TWO diagnostic steps.</task>
+        <output>
+        - Start by identifying the **Component** and **System** in bold.
+        - Then use "## Diagnostic Steps" heading.
+        - Use bullet points for the steps.
+        </output>
+    </on_topic_rules>
+    
+    <off_topic_rules>
+        <task>Strictly refuse all non-vehicle questions.</task>
+        <examples_to_refuse>
+        - Conversational chit-chat (e.g., "how are you").
+        - Trivia (e.g., "who painted the mona lisa").
+        - Questions about yourself or your training.
+        - Any other non-automotive topic.
+        </examples_to_refuse>
+        <output>Respond ONLY with one of the standard refusal answers from your training data.</output>
+    </off_topic_rules>
+    </system_prompt>
+    """
 
-  <on_topic_rules>
-    <task>Provide maximum TWO diagnostic steps.</task>
-    <output>
-    - Start by identifying the **Component** and **System** in bold.
-    - Then use "## Diagnostic Steps" heading.
-    - Use bullet points for the steps.
-    </output>
-  </on_topic_rules>
-  
-  <off_topic_rules>
-    <task>Strictly refuse all non-vehicle questions.</task>
-    <examples_to_refuse>
-      - Conversational chit-chat (e.g., "how are you").
-      - Trivia (e.g., "who painted the mona lisa").
-      - Questions about yourself or your training.
-      - Any other non-automotive topic.
-    </examples_to_refuse>
-    <output>Respond ONLY with one of the standard refusal answers from your training data.</output>
-  </off_topic_rules>
-</system_prompt>
-"""
+    def __init__(self, model_name):
+        self.HF_TOKEN = os.getenv("HF_TOKEN")
+        self.model_name = model_name
+        self.model_id = ""
+        self.model_kwargs = {}
+        self.sys_prompt = ""
 
-def run_train(paths, model_id, model_kwargs):
-    print("Starting training pipeline..")
-    train.set_seed(SEED)
+        self.paths = {
+            "checkpoint_path": os.path.join(self.MODEL_PATH, f"tiny_{model_name}_output"),
+            "adapter_path": os.path.join(self.MODEL_PATH, f"tiny_{model_name}_adapter"),
+            "merged_path": os.path.join(self.MODEL_PATH, f"tiny_{model_name}_merged"),
+        }
 
-    checkpoint_path = paths["checkpoint_path"]
-    adapter_path = paths["adapter_path"]
-    merged_path = paths["merged_path"]
+        if model_name == "gemma":
+            self.model_id = "google/gemma-3-1b-it"
+            self.sys_prompt = self.SYS_PROMPT_SHORT
+            if not self.HF_TOKEN:
+                print("Error: Gemma3 is a gated model and requires authentication.")
+                sys.exit(1)
+            self.model_kwargs = {"token": self.HF_TOKEN}
+        elif model_name == "qwen":
+            self.model_id = "Qwen/Qwen3-4B-Instruct-2507"
+            self.sys_prompt = self.SYS_PROMPT_LONG
+            self.model_kwargs = {"trust_remote_code": True}
 
-    all_datasets = train.process_data(DATA_FILE, DATA_PATH, random_state=SEED)
+    def run_train(self):
+        print("Starting training pipeline..")
+        train.set_seed(self.SEED)
 
-    # Load model & tokeniser
-    bnb_config = train.create_bnb_config()
-    peft_config = train.create_peft_config()
-    model, tokenizer = train.load_model_and_tokenizer(model_id, bnb_config, **model_kwargs)
-    model = train.prepare_model_for_peft(model, peft_config)
+        checkpoint_path = self.paths["checkpoint_path"]
+        adapter_path = self.paths["adapter_path"]
+        merged_path = self.paths["merged_path"]
 
-    print("Tokenising datasets..")
-    tokenised_dataset = all_datasets.map(
-        lambda ex: train.apply_chat_template(SYS_PROMPT, ex, tokenizer),
-        remove_columns=["type", "question", "answer"],
-    )
+        all_datasets = train.process_data(self.DATA_FILE, self.DATA_PATH, random_state=self.SEED)
 
-    # Convert tokeniser into data collator for SFTTrainer
-    data_collator = DataCollatorForLanguageModeling(
-        tokenizer=tokenizer,
-        mlm=False,
-    )
+        # Load model & tokeniser
+        bnb_config = train.create_bnb_config()
+        peft_config = train.create_peft_config()
+        model, tokenizer = train.load_model_and_tokenizer(self.model_id, bnb_config, **self.model_kwargs)
+        model = train.prepare_model_for_peft(model, peft_config)
 
-    print("Fine-tuning model..")
-    training_args = train.create_train_args(checkpoint_path)
-    trainer = train.train_sft(
-        model,
-        tokenizer,
-        training_args,
-        tokenised_dataset["train"],
-        tokenised_dataset["val"],
-        data_collator,
-    )
-    print("Fine-tuning complete.")
+        print("Tokenising datasets..")
+        tokenised_dataset = all_datasets.map(
+            lambda ex: train.apply_chat_template(self.sys_prompt, ex, tokenizer, self.model_name),
+            remove_columns=["type", "question", "answer"],
+        )
 
-    # Save the fine-tuned adapter & merged model
-    print(f"Saving adapter to: {adapter_path}")
-    trainer.save_model(adapter_path)
+        # Convert tokeniser into data collator for SFTTrainer
+        data_collator = DataCollatorForLanguageModeling(
+            tokenizer=tokenizer,
+            mlm=False,
+        )
 
-    train.merge_model(trainer, tokenizer, merged_path)
-    print("Training pipeline finished.")
+        print("Fine-tuning model..")
+        training_args = train.create_train_args(checkpoint_path)
+        trainer = train.train_sft(
+            model,
+            tokenizer,
+            training_args,
+            tokenised_dataset["train"],
+            tokenised_dataset["val"],
+            data_collator,
+        )
+        print("Fine-tuning complete.")
 
-def run_eval(paths, model_kwargs):
-    print("Starting evaluation pipeline..")
-    eval.set_seed(SEED)
+        # Save the fine-tuned adapter & merged model
+        print(f"Saving adapter to: {adapter_path}")
+        trainer.save_model(adapter_path)
 
-    merged_path = paths["merged_path"]
+        train.merge_model(trainer, tokenizer, merged_path)
+        print("Training pipeline finished.")
 
-    data_test = eval.process_test_data(TEST_FILE)
+    def run_eval(self):
+        print("Starting evaluation pipeline..")
+        eval.set_seed(self.SEED)
 
-    print("Loading model and tokeniser..")
-    model, tokenizer = eval.load_model_and_tokenizer(merged_path, **model_kwargs)
+        merged_path = self.paths["merged_path"]
 
-    # Apply chat template & get the list of prompts
-    data_prompts = data_test.map(
-        lambda ex: eval.apply_chat_template(SYS_PROMPT, ex, tokenizer)
-    )
-    prompts_list = data_prompts["prompt"][:]
+        data_test = eval.process_test_data(self.TEST_FILE)
 
-    preds = eval.generate_preds(model, tokenizer, prompts_list)
+        print("Loading model and tokeniser..")
+        model, tokenizer = eval.load_model_and_tokenizer(merged_path, **self.model_kwargs)
 
-    print("Saving results..")
-    eval.save_eval_results(data_test, preds, RESULTS_FILE)
-    print("Evaluation pipeline finished.")
+        # Apply chat template & get the list of prompts
+        data_prompts = data_test.map(
+            lambda ex: eval.apply_chat_template(self.sys_prompt, ex, tokenizer, self.model_name)
+        )
+        prompts_list = data_prompts["prompt"][:]
 
-def run_pred(paths, model_kwargs):
-    print("Starting inference pipeline..")
-    merged_path = paths["merged_path"]
+        preds = eval.generate_preds(model, tokenizer, prompts_list)
 
-    model, tokenizer = pred.load_model_and_tokenizer(merged_path, **model_kwargs)
+        print("Saving results..")
+        eval.save_eval_results(data_test, preds, self.RESULTS_FILE)
+        print("Evaluation pipeline finished.")
 
-    # Run inference
-    print(f"Prompt: {USER_PROMPT}\n")
-    response = pred.generate_response(SYS_PROMPT, USER_PROMPT, model, tokenizer)
-    print(f"Reply:\n {response}")
+    def run_pred(self):
+        print("Starting inference pipeline..")
+        merged_path = self.paths["merged_path"]
+
+        model, tokenizer = pred.load_model_and_tokenizer(merged_path, **self.model_kwargs)
+
+        # Run inference
+        print(f"Prompt: {self.USER_PROMPT}\n")
+        response = pred.generate_response(self.sys_prompt, self.USER_PROMPT, model, tokenizer, self.model_name)
+        print(f"Reply:\n {response}")
 
 def main():
     parser = argparse.ArgumentParser(description="Fine-tune QLoRA LLM.")
@@ -146,30 +180,16 @@ def main():
     )
     args = parser.parse_args()
 
-    paths = {
-        "checkpoint_path": os.path.join(MODEL_PATH, f"tiny_{args.model_name}_output"),
-        "adapter_path": os.path.join(MODEL_PATH, f"tiny_{args.model_name}_adapter"),
-        "merged_path": os.path.join(MODEL_PATH, f"tiny_{args.model_name}_merged"),
-    }
-    
-    model_id = ""
-    model_kwargs = {}
-    if args.model_name == "gemma":
-        model_id = "google/gemma-3-1b-it"
-        if not HF_TOKEN:
-            print("Error: Gemma3 is a gated model and requires authentication.")
-            sys.exit(1)
-        model_kwargs = {"token": HF_TOKEN}
-    elif args.model_name == "qwen":
-        model_id = "Qwen/Qwen3-4B-Instruct-2507"
-        model_kwargs = {"trust_remote_code": True}
+    pipeline = EdgeLLMPipeline(model_name=args.model_name)
     
     if args.script == "train":
-        run_train(paths, model_id, model_kwargs)
+        pipeline.run_train()
     elif args.script == "eval":
-        run_eval(paths, model_kwargs)
+        pipeline.run_eval()
     elif args.script == "pred":
-        run_pred(paths, model_kwargs)
+        pipeline.run_pred()
+    elif args.script == "convert":
+        pipeline.run_convert()
 
 if __name__ == "__main__":
     main()
