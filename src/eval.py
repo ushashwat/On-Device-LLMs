@@ -29,14 +29,20 @@ def process_test_data(test_file):
     data_test = Dataset.from_pandas(df_test)
     return data_test
 
-def apply_chat_template(sys_prompt, example, tokenizer):
+def apply_chat_template(sys_prompt, example, tokenizer, model_name):
     """
     Applies the chat template to a batch of samples from the test set.
     """
-    messages = [
-        {"role": "system", "content": sys_prompt},
-        {"role": "user", "content": example["question"]}
-    ]
+    if model_name == "gemma":
+        messages = [
+            {"role": "user", "content": f"{sys_prompt}\n{example['question']}"}
+        ]
+    else:
+        messages = [
+            {"role": "system", "content": sys_prompt},
+            {"role": "user", "content": example["question"]}
+        ]
+    
     prompt = tokenizer.apply_chat_template(
         messages,
         tokenize=False,

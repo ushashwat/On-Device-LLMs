@@ -21,14 +21,19 @@ def load_model_and_tokenizer(model_path, **model_kwargs):
     model.eval()
     return model, tokenizer
 
-def generate_response(sys_prompt, user_prompt, model, tokenizer):
+def generate_response(sys_prompt, user_prompt, model, tokenizer, model_name):
     """
     Generates a response based on user prompt.
     """
-    messages = [
-        {"role": "system", "content": sys_prompt},
-        {"role": "user", "content": user_prompt}
-    ]
+    if model_name == "gemma":
+        messages = [
+            {"role": "user", "content": f"{sys_prompt}\n{user_prompt}"}
+        ]
+    else:
+        messages = [
+            {"role": "system", "content": sys_prompt},
+            {"role": "user", "content": user_prompt}
+        ]
 
     inputs = tokenizer.apply_chat_template(
         messages,

@@ -69,15 +69,23 @@ def process_data(data_file, save_path, random_state):
                             "test": test_dataset})
     return all_data
 
-def apply_chat_template(sys_prompt, example, tokenizer, max_length=1024):
+def apply_chat_template(sys_prompt, example, tokenizer, model_name, max_length=1024):
     """
     Takes each example from the given dataset and applies the chat template.
     """
-    messages = [
-        {"role": "system", "content": sys_prompt},
-        {"role": "user", "content": example["question"]},
-        {"role": "assistant", "content": example["answer"]}
-    ]
+    if model_name == "gemma":
+        # Gemma: merge system into user message, use model role for response
+        messages = [
+            {"role": "user", "content": f"{sys_prompt}\n{example['question']}"},
+            {"role": "model", "content": example["answer"]}
+        ]
+    else:
+        # Qwen: standard system/user/assistant roles
+        messages = [
+            {"role": "system", "content": sys_prompt},
+            {"role": "user", "content": example["question"]},
+            {"role": "assistant", "content": example["answer"]}
+        ]
 
     formatted_input = tokenizer.apply_chat_template(
         messages,
