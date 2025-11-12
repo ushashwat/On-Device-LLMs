@@ -1,6 +1,7 @@
+"""train.py script for llm fine-tuning."""
 import os
-import torch
 import random
+import torch
 import numpy as np
 import pandas as pd
 from datasets import Dataset, DatasetDict
@@ -19,9 +20,7 @@ from transformers import (
 from trl import SFTTrainer
 
 def set_seed(seed):
-    """
-    Sets seed for reproducibility.
-    """
+    """Sets seed for reproducibility."""
     random.seed(seed)
     np.random.seed(seed)
     torch.manual_seed(seed)
@@ -31,9 +30,7 @@ def set_seed(seed):
         torch.backends.cudnn.benchmark = False
 
 def process_data(data_file, save_path, random_state):
-    """
-    Loads, stratifies, shuffles, and splits the JSONL dataset.
-    """
+    """Loads, stratifies, shuffles, and splits the JSONL dataset."""
     df = pd.read_json(data_file, lines=True)
 
     # Stratify, shuffle, and split the data
@@ -52,7 +49,7 @@ def process_data(data_file, save_path, random_state):
         shuffle=True,
         random_state=random_state,
     )
-    
+
     # Save data splits
     os.makedirs(save_path, exist_ok=True)
     df_train.to_json(os.path.join(save_path, "train.jsonl"), orient="records", lines=True)
@@ -70,9 +67,7 @@ def process_data(data_file, save_path, random_state):
     return all_data
 
 def apply_chat_template(sys_prompt, example, tokenizer, model_name, max_length=1024):
-    """
-    Takes each example from the given dataset and applies the chat template.
-    """
+    """Takes each example from the given dataset and applies the chat template."""
     if model_name == "gemma":
         # Gemma: merge system into user message, use model role for response
         messages = [
@@ -102,9 +97,7 @@ def apply_chat_template(sys_prompt, example, tokenizer, model_name, max_length=1
     return tokenised_output
 
 def create_bnb_config():
-    """
-    Creates 4-bit quantisation configuration.
-    """
+    """Creates 4-bit quantisation configuration."""
     return BitsAndBytesConfig(
         load_in_4bit=True,
         bnb_4bit_quant_type="nf4",
@@ -113,9 +106,7 @@ def create_bnb_config():
     )
 
 def create_peft_config():
-    """
-    Creates LoRA configuration.
-    """
+    """Creates LoRA configuration."""
     return LoraConfig(
         r=256,
         lora_alpha=512,
@@ -128,9 +119,7 @@ def create_peft_config():
     )
 
 def load_model_and_tokenizer(model_id, bnb_config, **model_kwargs):
-    """
-    Loads model and tokeniser with quantisation.
-    """
+    """Loads model and tokeniser with quantisation."""
     model = AutoModelForCausalLM.from_pretrained(
         model_id,
         quantization_config=bnb_config,
@@ -144,7 +133,7 @@ def load_model_and_tokenizer(model_id, bnb_config, **model_kwargs):
     tokenizer = AutoTokenizer.from_pretrained(model_id, **model_kwargs)
     if tokenizer.pad_token is None:
         tokenizer.pad_token = tokenizer.eos_token
-    
+
     return model, tokenizer
 
 def prepare_model_for_peft(model, peft_config):
@@ -157,9 +146,7 @@ def prepare_model_for_peft(model, peft_config):
     return model
 
 def create_train_args(output_dir):
-    """
-    Defines training arguments.
-    """
+    """Defines training arguments."""
     return TrainingArguments(
         output_dir=output_dir,
         per_device_train_batch_size=16,
@@ -180,9 +167,7 @@ def create_train_args(output_dir):
     )
 
 def train_sft(model, tokenizer, training_args, train_dataset, eval_dataset, data_collator):
-    """
-    Trains the model using SFTTrainer.
-    """
+    """Trains the model using SFTTrainer."""
     trainer = SFTTrainer(
         model=model,
         processing_class=tokenizer,
@@ -195,9 +180,7 @@ def train_sft(model, tokenizer, training_args, train_dataset, eval_dataset, data
     return trainer
 
 def merge_model(trainer, tokenizer, merged_model_path):
-    """
-    Merges the trained adapter onto the base model.
-    """
+    """Merges the trained adapter onto the base model."""
     model = trainer.model.merge_and_unload()
     model.save_pretrained(merged_model_path)
     tokenizer.save_pretrained(merged_model_path)

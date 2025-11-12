@@ -1,5 +1,6 @@
-import torch
+"""evaluate.py script for llm testing."""
 import random
+import torch
 import numpy as np
 import pandas as pd
 from datasets import Dataset
@@ -10,9 +11,7 @@ from transformers import (
 )
 
 def set_seed(seed):
-    """
-    Sets seed for reproducibility.
-    """
+    """Sets seed for reproducibility."""
     random.seed(seed)
     np.random.seed(seed)
     torch.manual_seed(seed)
@@ -22,17 +21,13 @@ def set_seed(seed):
         torch.backends.cudnn.benchmark = False
 
 def process_test_data(test_file):
-    """
-    Loads test data from JSONL file.
-    """
+    """Loads test data from JSONL file."""
     df_test = pd.read_json(test_file, lines=True)
     data_test = Dataset.from_pandas(df_test)
     return data_test
 
 def apply_chat_template(sys_prompt, example, tokenizer, model_name):
-    """
-    Applies the chat template to a batch of samples from the test set.
-    """
+    """Applies the chat template to a batch of samples from the test set."""
     if model_name == "gemma":
         messages = [
             {"role": "user", "content": f"{sys_prompt}\n{example['question']}"}
@@ -42,7 +37,7 @@ def apply_chat_template(sys_prompt, example, tokenizer, model_name):
             {"role": "system", "content": sys_prompt},
             {"role": "user", "content": example["question"]}
         ]
-    
+
     prompt = tokenizer.apply_chat_template(
         messages,
         tokenize=False,
@@ -51,9 +46,7 @@ def apply_chat_template(sys_prompt, example, tokenizer, model_name):
     return {"prompt": prompt}
 
 def load_model_and_tokenizer(model_path, **model_kwargs):
-    """
-    Loads merged model and tokeniser.
-    """
+    """Loads merged model and tokeniser."""
     model = AutoModelForCausalLM.from_pretrained(
         model_path,
         dtype=torch.bfloat16,
@@ -67,15 +60,13 @@ def load_model_and_tokenizer(model_path, **model_kwargs):
     return model, tokenizer
 
 def generate_preds(model, tokenizer, prompts_list):
-    """
-    Generates predictions using model pipeline.
-    """
+    """Generates predictions using model pipeline."""
     generation_kwargs = {
         "max_new_tokens": 256,
         "eos_token_id": tokenizer.eos_token_id,
         "return_full_text": False,
     }
-    
+
     model.eval()
     pipe = pipeline("text-generation", model=model, tokenizer=tokenizer)
     outputs = pipe(prompts_list, **generation_kwargs, batch_size=32)
@@ -83,9 +74,7 @@ def generate_preds(model, tokenizer, prompts_list):
     return preds
 
 def save_eval_results(data_test, predictions, results_file):
-    """
-    Saves evaluation results to a CSV file.
-    """
+    """Saves evaluation results to a CSV file."""
     df_results = pd.DataFrame({
         "question": data_test["question"],
         "answer_ref": data_test["answer"],
