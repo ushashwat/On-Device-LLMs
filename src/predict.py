@@ -14,6 +14,7 @@ def load_model_and_tokenizer(model_path, **model_kwargs):
     )
     model = AutoModelForCausalLM.from_pretrained(
         model_path,
+        device_map="auto",
         dtype=torch.bfloat16,
         **model_kwargs
     )
@@ -43,7 +44,7 @@ def generate_response(sys_prompt, user_prompt, model, tokenizer, model_name):
     with torch.no_grad():
         outputs = model.generate(
             **inputs,
-            max_new_tokens=256,
+            max_new_tokens=128,
             eos_token_id=tokenizer.eos_token_id,
     )
 
