@@ -9,12 +9,10 @@ from sklearn.model_selection import train_test_split
 from peft import (
     LoraConfig,
     get_peft_model,
-    prepare_model_for_kbit_training,
 )
 from transformers import (
     AutoTokenizer,
     AutoModelForCausalLM,
-    BitsAndBytesConfig,
     TrainingArguments,
 )
 from trl import SFTTrainer
@@ -96,15 +94,6 @@ def apply_chat_template(sys_prompt, example, tokenizer, model_name, max_length=1
     )
     return tokenised_output
 
-def create_bnb_config():
-    """Creates 4-bit quantisation configuration."""
-    return BitsAndBytesConfig(
-        load_in_4bit=True,
-        bnb_4bit_quant_type="nf4",
-        bnb_4bit_use_double_quant=False,
-        bnb_4bit_compute_dtype=torch.bfloat16,
-    )
-
 def create_peft_config():
     """Creates LoRA configuration."""
     return LoraConfig(
@@ -118,11 +107,10 @@ def create_peft_config():
         ]
     )
 
-def load_model_and_tokenizer(model_id, bnb_config, **model_kwargs):
+def load_model_and_tokenizer(model_id, **model_kwargs):
     """Loads model and tokeniser with quantisation."""
     model = AutoModelForCausalLM.from_pretrained(
         model_id,
-        quantization_config=bnb_config,
         dtype=torch.bfloat16,
         **model_kwargs,
     )
@@ -137,10 +125,7 @@ def load_model_and_tokenizer(model_id, bnb_config, **model_kwargs):
     return model, tokenizer
 
 def prepare_model_for_peft(model, peft_config):
-    """
-    Prepares model for PEFT training.
-    """
-    model = prepare_model_for_kbit_training(model)
+    """Prepares model for PEFT training."""
     model = get_peft_model(model, peft_config)
     model.print_trainable_parameters()
     return model
@@ -153,7 +138,7 @@ def create_train_args(output_dir):
         per_device_eval_batch_size=16,
         gradient_accumulation_steps=2,
         gradient_checkpointing=True,
-        num_train_epochs=6,
+        num_train_epochs=7,
         learning_rate=1e-5,
         lr_scheduler_type="cosine",
         warmup_ratio=0.05,
@@ -182,6 +167,7 @@ def train_sft(model, tokenizer, training_args, train_dataset, eval_dataset, data
 def merge_model(trainer, tokenizer, merged_model_path):
     """Merges the trained adapter onto the base model."""
     model = trainer.model.merge_and_unload()
-    model.save_pretrained(merged_model_path)
+    model.resize_token_embeddings(262144)
+    model.save_pretrained(merged_model_path, safe_serialization=True, max_shard_size="2GB")
     tokenizer.save_pretrained(merged_model_path)
     print(f"Merged model saved at: {merged_model_path}")
