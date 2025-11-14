@@ -7,10 +7,10 @@ from transformers import DataCollatorForLanguageModeling
 import train
 import evaluate
 import predict
+import convert
 
-LOG_FILE = "../pipeline.log"
 logging.basicConfig(
-    filename=LOG_FILE,
+    filename="../pipeline.log",
     filemode='a',
     level=logging.INFO,
     format="%(asctime)s - %(message)s"
@@ -110,11 +110,9 @@ class EdgeLLMPipeline:
         all_datasets = train.process_data(self.DATA_FILE, self.DATA_PATH, random_state=self.SEED)
 
         # Load model & tokeniser
-        bnb_config = train.create_bnb_config()
         peft_config = train.create_peft_config()
         model, tokenizer = train.load_model_and_tokenizer(
             self.model_id,
-            bnb_config,
             **self.model_kwargs
         )
         model = train.prepare_model_for_peft(model, peft_config)
@@ -189,6 +187,20 @@ class EdgeLLMPipeline:
             self.model_name
         )
         logger.info("Reply:\n %s", response)
+        logger.info("Inference pipeline finished.")
+
+    def run_convert(self) -> None:
+        """Converts the merged model to TFLite format."""
+        logger.info("Starting conversion pipeline...")
+
+        merged_path = self.paths["merged_path"]
+        tf_lite_path = self.paths["tflite_path"]
+
+        convert.convert_to_litert(
+            merged_path,
+            tf_lite_path,
+        )
+        logger.info("Conversion pipeline finished.")
 
 def main() -> None:
     """The main function for orchestration."""
@@ -197,7 +209,7 @@ def main() -> None:
         "--script",
         type=str,
         required=True,
-        choices=["train", "eval", "pred"],
+        choices=["train", "eval", "pred", "convert"],
         help="The script to run",
     )
     parser.add_argument(
@@ -217,6 +229,8 @@ def main() -> None:
         pipeline.run_eval()
     elif args.script == "pred":
         pipeline.run_pred()
+    elif args.script == "convert":
+        pipeline.run_convert()
 
 if __name__ == "__main__":
     main()
