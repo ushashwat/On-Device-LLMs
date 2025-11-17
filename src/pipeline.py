@@ -1,21 +1,24 @@
 """pipeline.py script for orchestration."""
 import os
-import logging
+import sys
 import argparse
 from transformers import DataCollatorForLanguageModeling
+import src.train as train
+import src.evaluate as evaluate
+import src.pred as pred
+import src.convert as convert
+from src.logger_config import setup_logger
 
-import train
-import evaluate
-import predict
-import convert
+logger = setup_logger(__name__, "pipeline.log")
 
-logging.basicConfig(
-    filename="../pipeline.log",
-    filemode='a',
-    level=logging.INFO,
-    format="%(asctime)s - %(message)s"
-)
-logger = logging.getLogger(__name__)
+def load_prompt(file_path: str) -> str:
+    """Helper function to read a prompt file."""
+    try:
+        with open(file_path, 'r', encoding='utf-8') as f:
+            return f.read()
+    except FileNotFoundError:
+        logger.error("Prompt file not found: %s", file_path)
+        sys.exit(1)
 
 class EdgeLLMPipeline:
     """Pipeline for training, evaluating, and deploying Edge LLMs."""
@@ -29,45 +32,8 @@ class EdgeLLMPipeline:
     RESULTS_FILE = "../data/evaluation.csv"
     DATA_PATH = "../data"
     MODEL_PATH = "../model"
-
+    PROMPT_PATH = "../prompts"
     USER_PROMPT = "My window is stuck, what do i do now?"
-    SYS_PROMPT_SHORT = """
-    You are an automotive diagnostic assistant who replies concisely with NO filler content.
-    For vehicle symptoms, provide ONLY 2 diagnostic steps with relevant Component and System in bold.
-    For non-vehicle questions (chit-chat, trivia, questions about yourself), politely refuse.
-    """
-    SYS_PROMPT_LONG = """
-    <system_prompt>
-    <role>You are an expert AI automotive diagnostic assistant.</role>
-    
-    <instructions>
-        You MUST follow this logic:
-        1.  Analyze the user's question.
-        2.  IF the question is about vehicle symptoms, follow <on_topic_rules>.
-        3.  IF the question is ANYTHING ELSE, follow <off_topic_rules>.
-    </instructions>
-
-    <on_topic_rules>
-        <task>Provide maximum TWO diagnostic steps.</task>
-        <output>
-        - Start by identifying the **Component** and **System** in bold.
-        - Then use "## Diagnostic Steps" heading.
-        - Use bullet points for the steps.
-        </output>
-    </on_topic_rules>
-    
-    <off_topic_rules>
-        <task>Strictly refuse all non-vehicle questions.</task>
-        <examples_to_refuse>
-        - Conversational chit-chat (e.g., "how are you").
-        - Trivia (e.g., "who painted the mona lisa").
-        - Questions about yourself or your training.
-        - Any other non-automotive topic.
-        </examples_to_refuse>
-        <output>Respond ONLY with one of the standard refusal answers from your training data.</output>
-    </off_topic_rules>
-    </system_prompt>
-    """
 
     def __init__(self, model_name: str) -> None:
         """Initialises the Edge LLM pipeline."""
@@ -84,18 +50,18 @@ class EdgeLLMPipeline:
             "checkpoint_path": os.path.join(self.MODEL_PATH, f"tiny_{model_name}_output"),
             "adapter_path": os.path.join(self.MODEL_PATH, f"tiny_{model_name}_adapter"),
             "merged_path": os.path.join(self.MODEL_PATH, f"tiny_{model_name}_merged"),
-            "tflite_path": os.path.join(self.MODEL_PATH, f"tiny_{model_name}_tflite"),
+            "litert_path": os.path.join(self.MODEL_PATH, f"tiny_{model_name}_litert"),
         }
 
         if model_name == "gemma":
             self.model_id = self.GEMMA_MODEL_ID
-            self.sys_prompt = self.SYS_PROMPT_SHORT
+            self.sys_prompt = load_prompt(os.path.join(self.PROMPT_PATH, "prompt_short.txt"))
             if not self.hf_token:
                 raise EnvironmentError("Gemma3 is a gated model and requires Hugging Face token.")
             self.model_kwargs = {"token": self.hf_token}
         elif model_name == "qwen":
             self.model_id = "Qwen/Qwen3-4B-Instruct-2507"
-            self.sys_prompt = self.SYS_PROMPT_LONG
+            self.sys_prompt = load_prompt(os.path.join(self.PROMPT_PATH, "prompt_long.txt"))
             self.model_kwargs = {"trust_remote_code": True}
 
     def run_train(self) -> None:
@@ -170,16 +136,16 @@ class EdgeLLMPipeline:
         evaluate.save_eval_results(data_test, preds, self.RESULTS_FILE)
         logger.info("Evaluation pipeline finished.")
 
-    def run_pred(self):
+    def run_pred(self) -> None:
         """Executes the inference pipeline."""
         logger.info("Starting inference pipeline..")
         merged_path = self.paths["merged_path"]
 
-        model, tokenizer = predict.load_model_and_tokenizer(merged_path, **self.model_kwargs)
+        model, tokenizer = pred.load_model_and_tokenizer(merged_path, **self.model_kwargs)
 
         # Run inference
         logger.info("Prompt: %s\n", self.USER_PROMPT)
-        response = predict.generate_response(
+        response = pred.generate_response(
             self.sys_prompt,
             self.USER_PROMPT,
             model,
@@ -191,14 +157,14 @@ class EdgeLLMPipeline:
 
     def run_convert(self) -> None:
         """Converts the merged model to TFLite format."""
-        logger.info("Starting conversion pipeline...")
+        logger.info("Starting conversion pipeline..")
 
         merged_path = self.paths["merged_path"]
-        tf_lite_path = self.paths["tflite_path"]
+        litert_path = self.paths["litert_path"]
 
-        convert.convert_to_litert(
+        convert.create_tflite(
             merged_path,
-            tf_lite_path,
+            litert_path,
         )
         logger.info("Conversion pipeline finished.")
 
