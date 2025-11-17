@@ -1,6 +1,6 @@
-"""convert.py script for creating edge device file in .tflite format."""
+"""convert.py script for creating .tflite file."""
+import os
 import torch
-
 from ai_edge_torch.generative.examples.gemma3 import gemma3
 from ai_edge_torch.generative.layers import kv_cache
 from ai_edge_torch.generative.utilities import converter
@@ -36,7 +36,7 @@ def _create_export_config(prefill_seq_lens: list[int], kv_cache_max_len: int) ->
     export_config.mask_as_input = True
     return export_config
 
-def convert_to_litert(merged_path, tflite_path):
+def create_tflite(merged_path: str, output_dir: str) -> str:
     """Converts a merged Hugging Face model to TFLite format."""
     with torch.inference_mode(True):
         pytorch_model = gemma3.build_model_1b(
@@ -46,7 +46,7 @@ def convert_to_litert(merged_path, tflite_path):
 
         converter.convert_to_tflite(
             pytorch_model,
-            output_path=tflite_path,
+            output_path=output_dir,
             output_name_prefix="gemma3_1b_finetune",
             prefill_seq_len=PREFILL_SEQ_LENS,
             kv_cache_max_len=KV_CACHE_MAX_LEN,
