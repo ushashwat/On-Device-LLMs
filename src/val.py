@@ -1,4 +1,4 @@
-"""evaluate.py script for llm testing."""
+"""val.py script for llm testing."""
 import random
 import torch
 import numpy as np

@@ -4,7 +4,7 @@ import sys
 import argparse
 from transformers import DataCollatorForLanguageModeling
 import src.train as train
-import src.evaluate as evaluate
+import src.val as val
 import src.pred as pred
 import src.convert as convert
 from src.logger_config import setup_logger
@@ -116,24 +116,24 @@ class EdgeLLMPipeline:
     def run_eval(self) -> None:
         """Executes the evaluation pipeline."""
         logger.info("Starting evaluation pipeline..")
-        evaluate.set_seed(self.SEED)
+        val.set_seed(self.SEED)
 
         merged_path = self.paths["merged_path"]
 
-        data_test = evaluate.process_test_data(self.TEST_FILE)
+        data_test = val.process_test_data(self.TEST_FILE)
 
         logger.info("Loading model and tokeniser..")
-        model, tokenizer = evaluate.load_model_and_tokenizer(merged_path, **self.model_kwargs)
+        model, tokenizer = val.load_model_and_tokenizer(merged_path, **self.model_kwargs)
 
         # Apply chat template & get the list of prompts
         data_prompts = data_test.map(
-            lambda ex: evaluate.apply_chat_template(self.sys_prompt, ex, tokenizer, self.model_name)
+            lambda ex: val.apply_chat_template(self.sys_prompt, ex, tokenizer, self.model_name)
         )
         prompts_list = data_prompts["prompt"][:]
 
-        preds = evaluate.generate_preds(model, tokenizer, prompts_list)
+        preds = val.generate_preds(model, tokenizer, prompts_list)
 
-        evaluate.save_eval_results(data_test, preds, self.RESULTS_FILE)
+        val.save_eval_results(data_test, preds, self.RESULTS_FILE)
         logger.info("Evaluation pipeline finished.")
 
     def run_pred(self) -> None:
