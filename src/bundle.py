@@ -5,6 +5,15 @@ from src.logger_config import setup_logger
 
 logger = setup_logger(__name__, "pipeline.log")
 MODEL_PATH = "../model"
+SYS_PROMPT = (
+    "<start_of_turn>system\n"
+    "You are an automotive diagnostic assistant who replies concisely.\n"
+    "Provide ONLY 2 diagnostic steps with Component and System in bold.\n"
+    "For non-vehicle questions, politely refuse.\n"
+    "<end_of_turn>\n"
+)
+PROMPT_PREFIX = "<bos>" + SYS_PROMPT + "<start_of_turn>user\n"
+PROMPT_SUFFIX = "<end_of_turn>\n<start_of_turn>model\n"
 
 def create_task(tflite_model: str, tokenizer: str, output_dir: str) -> None:
     """Bundles .tflite model and tokenizer into a .task file."""
@@ -16,6 +25,8 @@ def create_task(tflite_model: str, tokenizer: str, output_dir: str) -> None:
         start_token="<bos>",
         stop_tokens=["<eos>", "<end_of_turn>"],
         output_filename=task_file,
+        prompt_prefix=PROMPT_PREFIX,
+        prompt_suffix=PROMPT_SUFFIX,
     )
     bundler.create_bundle(config)
 
@@ -27,7 +38,7 @@ def main():
     litert_path = os.path.join(MODEL_PATH, "tiny_gemma_litert")
 
     tokenizer = os.path.join(merged_path, "tokenizer.model")
-    tflite_model = os.path.join(litert_path, "gemma3_1b_finetune_q4_block32_ekv1024.tflite")
+    tflite_model = os.path.join(litert_path, "gemma3_1b_finetune_q4_block32_ekv2048.tflite")
 
     create_task(
         tflite_model,

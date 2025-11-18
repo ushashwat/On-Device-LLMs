@@ -1,13 +1,12 @@
 """convert.py script for creating .tflite file."""
-import os
 import torch
 from ai_edge_torch.generative.examples.gemma3 import gemma3
 from ai_edge_torch.generative.layers import kv_cache
 from ai_edge_torch.generative.utilities import converter
 from ai_edge_torch.generative.utilities.export_config import ExportConfig
 
-PREFILL_SEQ_LENS = [256]
-KV_CACHE_MAX_LEN = 1024
+PREFILL_SEQ_LENS = [256, 512, 1024]
+KV_CACHE_MAX_LEN = 2048
 
 def _create_mask(mask_len, kv_cache_max_len):
     """Creates an attention mask."""
