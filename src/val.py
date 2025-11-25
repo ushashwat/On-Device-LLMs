@@ -8,9 +8,11 @@ from transformers import (
     AutoTokenizer,
     AutoModelForCausalLM,
     pipeline,
+    PreTrainedModel,
+    PreTrainedTokenizerBase,
 )
 
-def set_seed(seed):
+def set_seed(seed: int) -> None:
     """Sets seed for reproducibility."""
     random.seed(seed)
     np.random.seed(seed)
@@ -20,23 +22,24 @@ def set_seed(seed):
         torch.backends.cudnn.deterministic = True
         torch.backends.cudnn.benchmark = False
 
-def process_test_data(test_file):
+def process_test_data(test_file: str) -> Dataset:
     """Loads test data from JSONL file."""
     df_test = pd.read_json(test_file, lines=True)
     data_test = Dataset.from_pandas(df_test)
     return data_test
 
-def apply_chat_template(sys_prompt, example, tokenizer, model_name):
+def apply_chat_template(
+        sys_prompt: str,
+        example: dict[str, str],
+        tokenizer: PreTrainedTokenizerBase,
+        model_name: str,
+    ) -> dict[str, str]:
     """Applies the chat template to a batch of samples from the test set."""
     if model_name == "gemma":
-        messages = [
-            {"role": "user", "content": f"{sys_prompt}\n{example['question']}"}
-        ]
+        messages = [{"role": "user", "content": f"{sys_prompt}\n{example['question']}"}]
     else:
-        messages = [
-            {"role": "system", "content": sys_prompt},
-            {"role": "user", "content": example["question"]}
-        ]
+        messages = [{"role": "system", "content": sys_prompt},
+                    {"role": "user", "content": example["question"]}]
 
     prompt = tokenizer.apply_chat_template(
         messages,
@@ -45,7 +48,10 @@ def apply_chat_template(sys_prompt, example, tokenizer, model_name):
     )
     return {"prompt": prompt}
 
-def load_model_and_tokenizer(model_path, **model_kwargs):
+def load_model_and_tokenizer(
+        model_path: str,
+        **model_kwargs,
+    ) -> tuple[PreTrainedModel, PreTrainedTokenizerBase]:
     """Loads merged model and tokeniser."""
     model = AutoModelForCausalLM.from_pretrained(
         model_path,
@@ -59,7 +65,11 @@ def load_model_and_tokenizer(model_path, **model_kwargs):
     )
     return model, tokenizer
 
-def generate_preds(model, tokenizer, prompts_list):
+def generate_preds(
+        model: PreTrainedModel,
+        tokenizer: PreTrainedTokenizerBase,
+        prompts_list: list[str],
+    ) -> list[str]:
     """Generates predictions using model pipeline."""
     generation_kwargs = {
         "max_new_tokens": 256,
@@ -73,7 +83,7 @@ def generate_preds(model, tokenizer, prompts_list):
     preds = [output[0]["generated_text"].strip() for output in outputs]
     return preds
 
-def save_eval_results(data_test, predictions, results_file):
+def save_eval_results(data_test: Dataset, predictions: list[str], results_file: str) -> None:
     """Saves evaluation results to a CSV file."""
     df_results = pd.DataFrame({
         "question": data_test["question"],

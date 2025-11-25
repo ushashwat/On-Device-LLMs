@@ -3,9 +3,14 @@ import torch
 from transformers import (
     AutoTokenizer,
     AutoModelForCausalLM,
+    PreTrainedModel,
+    PreTrainedTokenizerBase,
 )
 
-def load_model_and_tokenizer(model_path, **model_kwargs):
+def load_model_and_tokenizer(
+        model_path: str,
+        **model_kwargs,
+    ) -> tuple[PreTrainedModel, PreTrainedTokenizerBase]:
     """Loads the merged model and tokeniser for inference."""
     tokenizer = AutoTokenizer.from_pretrained(
         model_path,
@@ -21,7 +26,13 @@ def load_model_and_tokenizer(model_path, **model_kwargs):
     model.eval()
     return model, tokenizer
 
-def generate_response(sys_prompt, user_prompt, model, tokenizer, model_name):
+def generate_response(
+        sys_prompt: str,
+        user_prompt: str,
+        model: PreTrainedModel,
+        tokenizer: PreTrainedTokenizerBase,
+        model_name: str,
+    ) -> str:
     """Generates a response based on user prompt."""
     if model_name == "gemma":
         messages = [

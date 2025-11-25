@@ -8,7 +8,7 @@ from ai_edge_torch.generative.utilities.export_config import ExportConfig
 PREFILL_SEQ_LENS = [256, 512, 1024]
 KV_CACHE_MAX_LEN = 2048
 
-def _create_mask(mask_len, kv_cache_max_len):
+def _create_mask(mask_len: int, kv_cache_max_len: int) -> torch.Tensor:
     """Creates an attention mask."""
     mask = torch.full(
         (mask_len, kv_cache_max_len), float('-inf'), dtype=torch.float32
@@ -35,7 +35,7 @@ def _create_export_config(prefill_seq_lens: list[int], kv_cache_max_len: int) ->
     export_config.mask_as_input = True
     return export_config
 
-def create_tflite(merged_path: str, output_dir: str) -> str:
+def create_tflite(merged_path: str, output_dir: str) -> None:
     """Converts a merged Hugging Face model to TFLite format."""
     with torch.inference_mode(True):
         pytorch_model = gemma3.build_model_1b(

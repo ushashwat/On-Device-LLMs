@@ -30,7 +30,7 @@ def create_task(tflite_model: str, tokenizer: str, output_dir: str) -> None:
     )
     bundler.create_bundle(config)
 
-def main():
+def main() -> None:
     """Main execution logic creating a .task file."""
     logger.info("Starting bundling pipeline..")
 

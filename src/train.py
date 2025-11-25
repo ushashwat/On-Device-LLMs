@@ -9,15 +9,19 @@ from sklearn.model_selection import train_test_split
 from peft import (
     LoraConfig,
     get_peft_model,
+    PeftModel,
 )
 from transformers import (
     AutoTokenizer,
     AutoModelForCausalLM,
     TrainingArguments,
+    PreTrainedModel,
+    PreTrainedTokenizerBase,
+    DataCollatorForLanguageModeling,
 )
 from trl import SFTTrainer
 
-def set_seed(seed):
+def set_seed(seed: int) -> None:
     """Sets seed for reproducibility."""
     random.seed(seed)
     np.random.seed(seed)
@@ -27,7 +31,7 @@ def set_seed(seed):
         torch.backends.cudnn.deterministic = True
         torch.backends.cudnn.benchmark = False
 
-def process_data(data_file, save_path, random_state):
+def process_data(data_file: str, save_path: str, random_state: int) -> DatasetDict:
     """Loads, stratifies, shuffles, and splits the JSONL dataset."""
     df = pd.read_json(data_file, lines=True)
 
@@ -39,7 +43,6 @@ def process_data(data_file, save_path, random_state):
         shuffle=True,
         random_state=random_state,
     )
-
     df_val, df_test = train_test_split(
         df_temp,
         test_size=0.5,
@@ -59,12 +62,16 @@ def process_data(data_file, save_path, random_state):
     val_dataset = Dataset.from_pandas(df_val)
     test_dataset = Dataset.from_pandas(df_test)
 
-    all_data = DatasetDict({"train": train_dataset,
-                            "val": val_dataset,
-                            "test": test_dataset})
+    all_data = DatasetDict({"train": train_dataset, "val": val_dataset, "test": test_dataset})
     return all_data
 
-def apply_chat_template(sys_prompt, example, tokenizer, model_name, max_length=1024):
+def apply_chat_template(
+        sys_prompt: str,
+        example: dict[str, str],
+        tokenizer: PreTrainedTokenizerBase,
+        model_name: str,
+        max_length: int = 1024,
+    ) -> dict[str, list[int]]:
     """Takes each example from the given dataset and applies the chat template."""
     if model_name == "gemma":
         # Gemma: merge system into user message, use model role for response
@@ -85,7 +92,6 @@ def apply_chat_template(sys_prompt, example, tokenizer, model_name, max_length=1
         tokenize=False,
         add_generation_prompt=False,
     )
-
     tokenised_output = tokenizer(
         formatted_input,
         truncation=True,
@@ -94,7 +100,7 @@ def apply_chat_template(sys_prompt, example, tokenizer, model_name, max_length=1
     )
     return tokenised_output
 
-def create_peft_config():
+def create_peft_config() -> LoraConfig:
     """Creates LoRA configuration."""
     return LoraConfig(
         r=256,
@@ -107,14 +113,16 @@ def create_peft_config():
         ]
     )
 
-def load_model_and_tokenizer(model_id, **model_kwargs):
+def load_model_and_tokenizer(
+        model_id: str,
+        **model_kwargs,
+    ) -> tuple[PreTrainedModel, PreTrainedTokenizerBase]:
     """Loads model and tokeniser with quantisation."""
     model = AutoModelForCausalLM.from_pretrained(
         model_id,
         dtype=torch.bfloat16,
         **model_kwargs,
     )
-
     model.config.use_cache = False
     model.config.pretraining_tp = 1
 
@@ -124,13 +132,13 @@ def load_model_and_tokenizer(model_id, **model_kwargs):
 
     return model, tokenizer
 
-def prepare_model_for_peft(model, peft_config):
+def prepare_model_for_peft(model: PreTrainedModel, peft_config: LoraConfig) -> PeftModel:
     """Prepares model for PEFT training."""
     model = get_peft_model(model, peft_config)
     model.print_trainable_parameters()
     return model
 
-def create_train_args(output_dir):
+def create_train_args(output_dir: str) -> TrainingArguments:
     """Defines training arguments."""
     return TrainingArguments(
         output_dir=output_dir,
@@ -151,7 +159,14 @@ def create_train_args(output_dir):
         report_to="none",
     )
 
-def train_sft(model, tokenizer, training_args, train_dataset, eval_dataset, data_collator):
+def train_sft(
+        model: PeftModel,
+        tokenizer: PreTrainedTokenizerBase,
+        training_args: TrainingArguments,
+        train_dataset: Dataset,
+        eval_dataset: Dataset,
+        data_collator: DataCollatorForLanguageModeling,
+    ) -> SFTTrainer:
     """Trains the model using SFTTrainer."""
     trainer = SFTTrainer(
         model=model,
@@ -164,7 +179,11 @@ def train_sft(model, tokenizer, training_args, train_dataset, eval_dataset, data
     trainer.train()
     return trainer
 
-def merge_model(trainer, tokenizer, merged_model_path):
+def merge_model(
+        trainer: SFTTrainer,
+        tokenizer: PreTrainedTokenizerBase,
+        merged_model_path: str,
+    ) -> None:
     """Merges the trained adapter onto the base model."""
     model = trainer.model.merge_and_unload()
     model.resize_token_embeddings(262144)
