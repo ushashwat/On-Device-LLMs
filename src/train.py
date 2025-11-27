@@ -70,21 +70,21 @@ def apply_chat_template(
         example: dict[str, str],
         tokenizer: PreTrainedTokenizerBase,
         model_name: str,
-        max_length: int = 1024,
+        max_length: int = 2048,
     ) -> dict[str, list[int]]:
     """Takes each example from the given dataset and applies the chat template."""
     if model_name == "gemma":
         # Gemma: merge system into user message, use model role for response
         messages = [
             {"role": "user", "content": f"{sys_prompt}\n{example['question']}"},
-            {"role": "model", "content": example["answer"]}
+            {"role": "model", "content": example["answer"] + tokenizer.eos_token}
         ]
     else:
         # Qwen: standard system/user/assistant roles
         messages = [
             {"role": "system", "content": sys_prompt},
             {"role": "user", "content": example["question"]},
-            {"role": "assistant", "content": example["answer"]}
+            {"role": "assistant", "content": example["answer"] + tokenizer.eos_token}
         ]
 
     formatted_input = tokenizer.apply_chat_template(
@@ -103,9 +103,9 @@ def apply_chat_template(
 def create_peft_config() -> LoraConfig:
     """Creates LoRA configuration."""
     return LoraConfig(
-        r=256,
-        lora_alpha=512,
-        lora_dropout=0.15,
+        r=128,
+        lora_alpha=256,
+        lora_dropout=0.1,
         task_type="CAUSAL_LM",
         target_modules=[
             "q_proj", "k_proj", "v_proj", "o_proj",
@@ -146,10 +146,10 @@ def create_train_args(output_dir: str) -> TrainingArguments:
         per_device_eval_batch_size=16,
         gradient_accumulation_steps=2,
         gradient_checkpointing=True,
-        num_train_epochs=7,
+        num_train_epochs=8,
         learning_rate=1e-5,
         lr_scheduler_type="cosine",
-        warmup_ratio=0.05,
+        warmup_ratio=0.1,
         weight_decay=0.01,
         save_strategy="epoch",
         eval_strategy="epoch",
@@ -186,7 +186,7 @@ def merge_model(
     ) -> None:
     """Merges the trained adapter onto the base model."""
     model = trainer.model.merge_and_unload()
-    model.resize_token_embeddings(262144)
+    model.resize_token_embeddings(262144) # For gemma model
     model.save_pretrained(merged_model_path, safe_serialization=True, max_shard_size="2GB")
     tokenizer.save_pretrained(merged_model_path)
     print(f"Merged model saved at: {merged_model_path}")

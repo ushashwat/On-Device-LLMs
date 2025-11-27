@@ -4,15 +4,14 @@ from mediapipe.tasks.python.genai import bundler
 from src.logger_config import setup_logger
 
 logger = setup_logger(__name__, "pipeline.log")
+
 MODEL_PATH = "../model"
 SYS_PROMPT = (
-    "<start_of_turn>system\n"
-    "You are an automotive diagnostic assistant who replies concisely.\n"
-    "Provide ONLY 2 diagnostic steps with Component and System in bold.\n"
-    "For non-vehicle questions, politely refuse.\n"
-    "<end_of_turn>\n"
+    "You are an automotive diagnostic assistant who replies concisely with NO filler content.\n"
+    "Provide ONLY 2 diagnostic steps with relevant Component and System in bold.\n"
+    "For non-vehicle questions (chit-chat, trivia, questions about yourself), politely refuse.\n"
 )
-PROMPT_PREFIX = "<bos>" + SYS_PROMPT + "<start_of_turn>user\n"
+PROMPT_PREFIX = "<bos><start_of_turn>user\n" + SYS_PROMPT
 PROMPT_SUFFIX = "<end_of_turn>\n<start_of_turn>model\n"
 
 def create_task(tflite_model: str, tokenizer: str, output_dir: str) -> None:
