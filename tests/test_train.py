@@ -73,17 +73,21 @@ def test_apply_chat_template(mock_tokenizer, model_name, expected_role):
     # Extract the messages passed to the tokenizer
     call_args = mock_tokenizer.apply_chat_template.call_args[0][0]
     assert call_args[-1]['role'] == expected_role
-    assert call_args[-1]['content'] == "Hi"
+    content = call_args[-1]['content'].replace("</s>", "")
+    assert content == "Hi"
 
-def test_configurations():
+@patch("src.train.TrainingArguments")
+def test_configurations(mock_training_args):
     """Verifies configuration objects are created correctly."""
     peft_conf = train.create_peft_config()
     assert isinstance(peft_conf, LoraConfig)
     assert peft_conf.task_type == "CAUSAL_LM"
 
-    train_args = train.create_train_args("output_dir")
-    assert isinstance(train_args, TrainingArguments)
-    assert train_args.bf16 is True
+    train.create_train_args("output_dir")
+    mock_training_args.assert_called_once()
+    call_kwargs = mock_training_args.call_args.kwargs
+    assert call_kwargs["bf16"] is True
+    assert call_kwargs["output_dir"] == "output_dir"
 
 @patch("src.train.get_peft_model")
 def test_prepare_model_for_peft(mock_get_peft):

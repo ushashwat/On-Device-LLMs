@@ -35,7 +35,7 @@ def test_set_seed():
 def test_process_test_data(mock_read_json, mock_test_dataset):
     """Verifies data loading and Dataset conversion."""
     mock_read_json.return_value = pd.DataFrame()
-    with patch("val.Dataset.from_pandas", return_value=mock_test_dataset) as mock_from_pandas:
+    with patch("src.val.Dataset.from_pandas", return_value=mock_test_dataset) as mock_from_pandas:
         result = val.process_test_data("fake.jsonl")
         mock_read_json.assert_called_with("fake.jsonl", lines=True)
         mock_from_pandas.assert_called_once()
