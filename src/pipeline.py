@@ -3,6 +3,7 @@ import os
 import sys
 import argparse
 from transformers import DataCollatorForLanguageModeling
+from dotenv import load_dotenv
 import src.train as train
 import src.val as val
 import src.pred as pred
@@ -10,6 +11,7 @@ import src.convert as convert
 from src.logger_config import setup_logger
 
 logger = setup_logger(__name__, "pipeline.log")
+load_dotenv()
 
 def load_prompt(file_path: str) -> str:
     """Helper function to read a prompt file."""
