@@ -7,11 +7,13 @@ from dotenv import load_dotenv
 import src.train as train
 import src.val as val
 import src.pred as pred
-import src.convert as convert
 from src.logger_config import setup_logger
 
 logger = setup_logger(__name__, "pipeline.log")
 load_dotenv()
+
+SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
+PROJECT_ROOT = os.path.dirname(SCRIPT_DIR)
 
 def load_prompt(file_path: str) -> str:
     """Helper function to read a prompt file."""
@@ -29,12 +31,12 @@ class EdgeLLMPipeline:
     QWEN_MODEL_ID = "Qwen/Qwen3-4B-Instruct-2507"
     SEED = 18
 
-    DATA_FILE = "../data/data.jsonl"
-    TEST_FILE = "../data/test.jsonl"
-    RESULTS_FILE = "../data/evaluation.csv"
-    DATA_PATH = "../data"
-    MODEL_PATH = "../model"
-    PROMPT_PATH = "../prompts"
+    DATA_PATH = os.path.join(PROJECT_ROOT, "data")
+    MODEL_PATH = os.path.join(PROJECT_ROOT, "model")
+    PROMPT_PATH = os.path.join(PROJECT_ROOT, "prompts")
+    DATA_FILE = os.path.join(DATA_PATH, "data.jsonl")
+    TEST_FILE = os.path.join(DATA_PATH, "test.jsonl")
+    RESULTS_FILE = os.path.join(DATA_PATH, "evaluation.csv")
     USER_PROMPT = "My window is stuck, what do i do now?"
 
     def __init__(self, model_name: str) -> None:
@@ -160,6 +162,8 @@ class EdgeLLMPipeline:
     def run_convert(self) -> None:
         """Converts the merged model to TFLite format."""
         logger.info("Starting conversion pipeline..")
+        # pylint: disable=import-outside-toplevel
+        import src.convert as convert
 
         merged_path = self.paths["merged_path"]
         litert_path = self.paths["litert_path"]
