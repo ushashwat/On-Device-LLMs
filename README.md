@@ -1,6 +1,8 @@
 # On-Device-LLMs
 A fine-tuned LLM to import in Google's [AI Edge Gallery](https://play.google.com/store/apps/details?id=com.google.ai.edge.gallery) app on Android for offline, secure, on-device inference.
 
+<img src="screenshot/image.png" alt="Convo with tiny gemma" width="300">
+
 ## Dataset overview
 The dataset was converted from raw json to jsonl in Q&A format using a semi-automated way for an optimal input to generative models.
 
@@ -59,10 +61,15 @@ python -m src.bundle
 ````
 
 ## Important notes
-- Conversion to `.tflite` can take several minutes depending on the hardware, whereas bundling should only take a few seconds.
+- Conversion to `.tflite` can take several minutes depending on the hardware, whereas bundling should take only a few seconds.
 - When running the convert logic from `pipeline.py`, if there's an error related to incompatibility with jax/tensorflow/pytorch/cuda, simply comment out the import line for convert script.
 - For now, only gemma model has been reauthored and quantised for on-device inference.
+- The Generative API by Google is currently CPU-only, with planned support for GPU and NPU.
 
-## TODO
-- Compare stats like prefill/decode speed, latency, etc. for INT4 Block32 vs INT8 quantisation.
-- Provide the Q&A dataset in JSONL format that was used for fine-tuning.
+## Benchmarking
+The following metrics were observed on my **Pixel 8a**:
+
+| Quantisation | First Token | Latency | Prefill Speed | Decode Speed |
+| ------------- | ------------- | ------------- | ------------- | ------------- |
+| INT4Block32 | 3.12 secs | 4.64 secs | 2.23 tokens/s | 28.21 tokens/s |
+| INT8 | 2.13 secs | 3.72 secs | 3.29 tokens/s | 20.23 tokens/s |
