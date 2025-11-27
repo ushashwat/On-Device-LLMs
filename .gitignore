@@ -210,8 +210,8 @@ __marimo__/
 .amlignore
 .amlignore.amltmp
 
-# Datasets
-data/
+# Logs and files
+logs/
 
 # Env var
 .env
