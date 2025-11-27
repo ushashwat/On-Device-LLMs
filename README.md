@@ -4,9 +4,7 @@ A fine-tuned LLM to import in Google's [AI Edge Gallery](https://play.google.com
 <img src="screenshot/image.png" alt="Convo with tiny gemma" width="300">
 
 ## Dataset overview
-The [custom dataset](data/data.jsonl) was created by converting from raw json to jsonl in Q&A format using a semi-automated method for an optimal input to generative models.
-
-The original dataset can be found at: https://zenodo.org/records/15626055
+The [custom dataset](data/data.jsonl) was created by converting the [original dataset]([data/data.jsonl](https://zenodo.org/records/15626055)) from raw json to jsonl. The format was changed to Q&A using a semi-automated method for an optimal input to generative models.
 
 ## Installation
 ### Setup
@@ -47,6 +45,8 @@ The `pipeline.py` script is used for orchestrating the following operations:
 - `val.py`: model evaluation.
 - `pred.py`: model inference.
 - `convert.py`: reauthor and convert the fine-tuned model from PyTorch to TFLite.
+
+Finally, the bundling script is run separately:
 - `bundle.py`: bundle the model and tokeniser as a Task file to be imported in the AI Edge Gallery app.
 
 ### Useful commands
@@ -61,13 +61,13 @@ python -m src.bundle
 ````
 
 ## Important notes
-- Conversion to `.tflite` can take several minutes depending on the hardware, whereas bundling should take only a few seconds.
-- When running the convert logic from `pipeline.py`, if there's an error related to incompatibility with jax/tensorflow/pytorch/cuda, simply comment out the import line for convert script.
+- Conversion from pytorch to `.tflite` format can take several minutes depending on the hardware, whereas bundling should take only a few seconds.
+- When running train/val/pred logic from `pipeline.py`, if there's any error related to incompatibility with joint installation of jax/tensorflow/pytorch/cuda, simply comment out the import line for convert script (since it imports tf and jax).
 - For now, only gemma model has been reauthored and quantised for on-device inference.
 - The Generative API by Google is currently CPU-only, with planned support for GPU and NPU.
 
 ## Benchmarking
-The following average metrics were observed under the same conditions on my **Pixel 8a**:
+The following average metrics were observed under the same prompts and device conditions on my **Pixel 8a**:
 
 | Quantisation | First Token | Latency | Prefill Speed | Decode Speed |
 | ------------- | ------------- | ------------- | ------------- | ------------- |
