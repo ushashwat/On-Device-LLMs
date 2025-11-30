@@ -1,0 +1,55 @@
+# Version control
+.git
+.gitignore
+
+# Azure ML
+.amlignore
+**/.amlignore
+*.amltmp
+**/*.amltmp
+
+# GitHub Actions/CI
+.github
+
+# Python cache
+__pycache__
+*.pyc
+*.pyo
+*.egg-info
+
+# Virtual environments
+.venv
+venv
+env
+
+# IDE/editor files
+.vscode
+.idea
+*.swp
+
+# Environment/secrets
+.env
+*.env
+
+# Testing/CI
+.pytest_cache
+.coverage
+htmlcov
+.github
+
+# Docker
+Dockerfile
+Dockerfile.bundle
+docker-compose.yml
+.dockerignore
+
+# Large datasets
+*.csv
+*.parquet
+
+# Logs
+logs/
+*.log
+
+# Images folder
+screenshot/
