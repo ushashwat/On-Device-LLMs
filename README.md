@@ -9,30 +9,36 @@ The [custom dataset](data/data.jsonl) was created by converting the [original da
 ## Installation
 ### Setup
 Create a virtual environment:
-````
+```
 python -m venv venv_llm
 source venv_llm/bin/activate
-````
+```
 
 Install all the packages in `requirements.txt` using the following command:
-````
+```
 pip install -r requirements.txt
-````
+```
+
+### Docker (alternative)
+Build a Docker image:
+```
+docker build -t on-device-llms .
+```
 
 ### Bundle
 Due to a current dependency conflict (as of Nov 2025) between mediapipe and tensorflow/protobuf, it is advisable to decouple this bundling task from the main pipeline. 
 
 Deactivate the previous venv and create a separate one:
-````
+```
 deactivate
 python -m venv venv_bundle
 source venv_bundle/bin/activate
-````
+```
 
 Then install only mediapipe in venv_bundle:
-````
+```
 pip install mediapipe
-````
+```
 
 ### Hugging Face token
 For gated models like gemma, you would need an [access token](https://huggingface.co/docs/hub/en/security-tokens) from Hugging Face. After creating one, store it as an environment variable.
@@ -51,14 +57,20 @@ Finally, the bundling script is run separately:
 
 ### Useful commands
 To train the gemma model, navigate to the root directory and use:
-````
+```
 python -m src.pipeline --script train --model_name gemma
-````
+```
 
 To bundle the model and tokeniser, change the venv as mentioned above and directly run:
-````
+```
 python -m src.bundle
-````
+```
+
+### Docker (alternative)
+Run the desired Docker container:
+```
+docker run -e HF_TOKEN=your_token on-device-llms python -m src.pipeline --script train --model_name gemma
+```
 
 ## Important notes
 - Conversion from pytorch to `.tflite` format can take several minutes depending on the hardware, whereas bundling should take only a few seconds.
