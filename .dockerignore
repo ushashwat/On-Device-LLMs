@@ -8,9 +8,6 @@
 *.amltmp
 **/*.amltmp
 
-# GitHub Actions/CI
-.github
-
 # Python cache
 __pycache__
 *.pyc
@@ -39,7 +36,6 @@ htmlcov
 
 # Docker
 Dockerfile
-Dockerfile.bundle
 docker-compose.yml
 .dockerignore
 
