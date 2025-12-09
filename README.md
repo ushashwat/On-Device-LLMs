@@ -4,7 +4,7 @@ A fine-tuned LLM to import in Google's [AI Edge Gallery](https://play.google.com
 <img src="screenshot/image.png" alt="Convo with tiny gemma" width="300">
 
 ## Dataset overview
-The [custom dataset](data/data.jsonl) was created by converting the [original dataset]([data/data.jsonl](https://zenodo.org/records/15626055)) from raw json to jsonl. The format was changed to Q&A using a semi-automated method for an optimal input to generative models.
+The [custom dataset](data/data.jsonl) was created by converting the [original dataset](https://zenodo.org/records/15626055) from raw json to jsonl. The format was changed to Q&A using a semi-automated method for an optimal input to generative models.
 
 ## Installation
 ### Setup
